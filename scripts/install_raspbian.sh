@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
 
+PROTON_CONF="/etc/proton-server.conf"
+HOSTAPD_CONF="/etc/hostapd/proton-server.conf"
+DNSMASQ_CONF="/etc/dnsmasq.d/proton-server.conf"
+HOTSPOT_RUNNER="/usr/local/sbin/proton-hotspot-run"
+HOTSPOT_SERVICE="/etc/systemd/system/proton-hotspot.service"
+NETWORKMANAGER_CONF="/etc/NetworkManager/conf.d/proton-server-unmanaged.conf"
+
 SERVICE_NAME="proton-server"
 BRANCH="headless"
 BRANCH_SET=0
@@ -194,13 +201,6 @@ if [ "$(id -u)" -eq 0 ]; then
 else
     SUDO="sudo"
 fi
-
-PROTON_CONF="/etc/proton-server.conf"
-HOSTAPD_CONF="/etc/hostapd/proton-server.conf"
-DNSMASQ_CONF="/etc/dnsmasq.d/proton-server.conf"
-HOTSPOT_RUNNER="/usr/local/sbin/proton-hotspot-run"
-HOTSPOT_SERVICE="/etc/systemd/system/proton-hotspot.service"
-NETWORKMANAGER_CONF="/etc/NetworkManager/conf.d/proton-server-unmanaged.conf"
 
 write_hotspot_config() {
     COUNTRY_CODE=$(iw reg get 2>/dev/null | awk '/country/ { print substr($2, 1, 2); exit }' || true)
