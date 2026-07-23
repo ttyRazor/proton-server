@@ -11,7 +11,7 @@ NETWORKMANAGER_CONF="/etc/NetworkManager/conf.d/proton-server-unmanaged.conf"
 SERVICE_NAME="proton-server"
 BRANCH="headless"
 BRANCH_SET=0
-APP_ARGS="--config ${PROTON_CONF}}"
+APP_ARGS="--config ${PROTON_CONF}"
 SERVICE_USER="${SUDO_USER:-$(id -un)}"
 START_SERVICE=1
 VERBOSE=0
@@ -334,7 +334,7 @@ write_server_service() {
         echo "[Install]"
         echo "WantedBy=multi-user.target"
     } | $SUDO tee "$SERVICE_FILE" >/dev/null
-    cp $REPO_DIR/proton.conf "$PROTON_CONF"
+    run $SUDO ccp $REPO_DIR/proton.conf "$PROTON_CONF"
 }
 
 cd "$REPO_DIR"
