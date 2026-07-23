@@ -334,7 +334,6 @@ write_server_service() {
         echo "[Install]"
         echo "WantedBy=multi-user.target"
     } | $SUDO tee "$SERVICE_FILE" >/dev/null
-    run $SUDO ccp $REPO_DIR/proton.conf "$PROTON_CONF"
     run $SUDO cp $REPO_DIR/proton.conf "$PROTON_CONF"
 }
 
