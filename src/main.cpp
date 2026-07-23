@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <csignal>
 #include <thread>
+#include <string>
 
 namespace {
 
@@ -57,6 +58,63 @@ double wifi_speed_from_control(const RobotControlState& control)
                       config::Motion.linear_speed_max);
 }
 
+struct ServoTelemetry {
+    double voltage_poll_time = config::Servo2040VoltagePollInterval, relay_active_time = 0.0;
+    double voltage = 0.0, current = 0.0;
+    int voltage_critical_samples = 0;
+    bool voltage_valid = false, current_valid = false;
+    bool voltage_warning = false, voltage_critical = false;
+
+    void reset_voltage_guard()
+    {
+        voltage_critical_samples = 0;
+        voltage_warning = false;
+    }
+
+    bool poll(double dt, Servo2040Client& servo2040, WifiControllerServer& wifi_controller)
+    {
+        if (!servo2040.is_connected() || voltage_critical) return false;
+
+        if (servo2040.relay_enabled()) {
+            relay_active_time += dt;
+        } else {
+            relay_active_time = 0.0;
+            reset_voltage_guard();
+        }
+
+        voltage_poll_time += dt;
+        if (voltage_poll_time < config::Servo2040VoltagePollInterval) return false;
+        voltage_poll_time = 0.0;
+
+        double reading = 0.0;
+        if (servo2040.read_voltage(reading)) {
+            voltage = reading;
+            voltage_valid = true;
+            wifi_controller.update_voltage(voltage);
+
+            const bool guard_armed =
+                servo2040.relay_enabled()
+                && relay_active_time >= config::Servo2040VoltageStartupDelay;
+            voltage_warning = guard_armed && voltage < config::Servo2040VoltageWarn;
+            if (guard_armed && voltage < config::Servo2040VoltageCritical) {
+                voltage_critical_samples++;
+                if (voltage_critical_samples >= config::Servo2040VoltageCriticalSamples) {
+                    voltage_critical = true;
+                    voltage_warning = false;
+                }
+            } else {
+                voltage_critical_samples = 0;
+            }
+        }
+
+        if (!servo2040.read_current(reading)) return voltage_critical;
+        current = reading;
+        current_valid = true;
+        wifi_controller.update_current(current);
+        return voltage_critical;
+    }
+};
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -70,6 +128,25 @@ int main(int argc, char** argv)
     std::signal(SIGINT, handle_headless_shutdown_signal);
     std::signal(SIGTERM, handle_headless_shutdown_signal);
     std::printf("Headless mode: local window and keyboard/gamepad input disabled.\n");
+
+    config::LoadResult config_result =
+        config::load_user_config(options.config_path, options.config_path_explicit);
+    for (const std::string& warning : config_result.warnings) {
+        std::fprintf(stderr, "Config warning: %s\n", warning.c_str());
+    }
+    if (!config_result.ok) {
+        for (const std::string& error : config_result.errors) {
+            std::fprintf(stderr, "Config error: %s\n", error.c_str());
+        }
+        return 1;
+    }
+    if (config_result.loaded) {
+        std::printf("Robot config: %s\n", options.config_path.c_str());
+    }
+    if (options.validate_config_only) {
+        std::printf("Config validation passed.\n");
+        return 0;
+    }
 
     WifiControllerServer wifi_controller;
     if (wifi_controller.start(options.wifi_controller_port)) {
@@ -122,6 +199,7 @@ int main(int argc, char** argv)
     // ============================================================
     bool shutdown_requested = false;
     bool shutdown_complete = false;
+    ServoTelemetry telemetry;
     double voltage_poll_time = config::Servo2040VoltagePollInterval;
     double relay_active_time = 0.0;
     int voltage_critical_samples = 0;
@@ -152,9 +230,8 @@ int main(int argc, char** argv)
         }
         if (relay_set) {
             wifi_controller.update_relay_status(relay_hardware_target, complete_relay_request);
-            relay_active_time = 0.0;
-            voltage_critical_samples = 0;
-            voltage_warning = false;
+            telemetry.relay_active_time = 0.0;
+            telemetry.reset_voltage_guard();
         }
     };
 

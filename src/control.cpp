@@ -9,11 +9,10 @@
 
 namespace {
 
-constexpr double LowBodyHeight = config::SitBodyHeight;
-constexpr double BodyRadiusMin = 0.10;
-constexpr double WifiHeightMax = 0.14;
-constexpr double StepHeightMin = 0.02;
-constexpr double StepHeightMax = 0.12;
+double low_body_height()
+{
+    return config::SitBodyHeight;
+}
 
 std::array<PWMValues, 6> neutral_pwm_values()
 {
@@ -59,11 +58,6 @@ double smoothstep(double t)
 double lerp(double a, double b, double t)
 {
     return a + (b - a) * std::clamp(t, 0.0, 1.0);
-}
-
-bool is_front_or_back_leg(int leg)
-{
-    return leg == 0 || leg == 2 || leg == 3 || leg == 5;
 }
 
 bool is_front_left_back_right_group(int leg)
@@ -128,37 +122,20 @@ double folded_horizontal_reach(const RobotParams& params, double body_height)
     return params.dims.coxa_len + l_coxa;
 }
 
-Vec3 perpendicular_foot_position(const RobotParams& params, int leg)
+Vec3 low_home_foot_position(const RobotParams& params, int leg, double body_height)
 {
-    Vec3 idle = params.default_foot_positions[leg];
-    if (!is_front_or_back_leg(leg)) return idle;
-
     double mount_angle = params.mount_angles[leg];
     double mount_radius = params.mount_radii[leg];
     double pivot_x = mount_radius * std::cos(mount_angle);
     double pivot_y = mount_radius * std::sin(mount_angle);
-    double reach = folded_horizontal_reach(params, LowBodyHeight);
-    double coxa_offset = config::CoxaAngleOffsetsDeg[leg] * (M_PI / 180.0);
-    double side_normal = ((leg < 3) ? -M_PI * 0.5 : M_PI * 0.5) + coxa_offset;
+    double reach = folded_horizontal_reach(params, body_height);
+    double side_angle = (leg < 3) ? -M_PI * 0.5 : M_PI * 0.5;
 
     return {
-        pivot_x + reach * std::cos(side_normal),
-        pivot_y + reach * std::sin(side_normal),
+        pivot_x + reach * std::cos(side_angle),
+        pivot_y + reach * std::sin(side_angle),
         0.0
     };
-}
-
-Vec3 tucked_foot_position(const RobotParams& params, int leg, double body_height)
-{
-    double leg_z = -body_height;
-    Vec3 foot_leg = {folded_horizontal_reach(params, body_height), 0.0, leg_z};
-
-    BasePose pose;
-    pose.z = body_height;
-    return leg_local_to_world(params.mount_angles[leg],
-                              params.mount_radii[leg],
-                              pose,
-                              foot_leg);
 }
 
 Vec3 lerp(const Vec3& a, const Vec3& b, double t)
@@ -186,14 +163,9 @@ Vec3 idle_foot_position(const RobotParams& params, int leg, const BasePose& pose
     return body_planar_to_world(pose, params.default_foot_positions[leg]);
 }
 
-Vec3 perpendicular_foot_position(const RobotParams& params, int leg, const BasePose& pose)
+Vec3 low_home_foot_position(const RobotParams& params, int leg, const BasePose& pose)
 {
-    return body_planar_to_world(pose, perpendicular_foot_position(params, leg));
-}
-
-Vec3 tucked_foot_position(const RobotParams& params, int leg, const BasePose& pose)
-{
-    return body_planar_to_world(pose, tucked_foot_position(params, leg, pose.z));
+    return body_planar_to_world(pose, low_home_foot_position(params, leg, pose.z));
 }
 
 void reset_gait_feet(GaitState& gait_state, const RobotParams& params, const BasePose& pose)
@@ -217,7 +189,7 @@ void reset_shutdown_sequence(RobotControlState& control)
 {
     control.shutdown_requested = false;
     control.shutdown_exits = true;
-    control.shutdown_sit_only = false;
+    control.shutdown_lower_only = false;
     control.shutdown_initialized = false;
     control.shutdown_complete = false;
     control.shutdown_phase = ShutdownPhase::SETTLE_TO_IDLE;
@@ -225,7 +197,7 @@ void reset_shutdown_sequence(RobotControlState& control)
     control.shutdown_idle_group = 0;
 }
 
-void set_command_height(RobotControlState& control, double height)
+void set_command_height(RobotControlState& control, double height, bool reset_body_radius = true)
 {
     const auto& motion = config::Motion;
 
@@ -234,7 +206,9 @@ void set_command_height(RobotControlState& control, double height)
     control.cmd.pose.z = height;
     control.cmd.pose.roll = control.cmd.pose.pitch = control.cmd.pose.yaw = 0.0;
     control.cmd.twist.linear_x = control.cmd.twist.linear_y = control.cmd.twist.angular_z = 0.0;
+    if (reset_body_radius) {
     control.cmd.body_radius = motion.body_radius;
+    }
     control.cmd.gait.cycle_time = motion.cycle_time;
     control.cmd.gait.step_height = step_height_for_body_height(height);
     control.cmd.gait.stride_scale = 1.0;
@@ -251,11 +225,11 @@ void solve_static_pose(const RobotParams& params,
                        RobotFrameState& frame,
                        const BasePose& target_pose)
 {
-    set_command_height(control, target_pose.z);
+    set_command_height(control, target_pose.z, false);
     base_pose = target_pose;
     final_pose = base_pose;
 
-    hexapod_ik_solver(base_pose, control.cmd.body_radius, params, feet_world, robot_state, final_pose);
+    hexapod_ik_solver(base_pose, 0.0, params, feet_world, robot_state, final_pose);
     frame.current_pwm = pwm_from_robot_state(robot_state);
     frame.render_state = robot_state;
     frame.render_pwm = frame.current_pwm;
@@ -301,16 +275,20 @@ bool update_shutdown_sequence(double dt,
             control.shutdown_start_feet[i].z = 0.0;
             control.shutdown_idle_start_feet[i] = control.shutdown_start_feet[i];
 
+            if (control.shutdown_lower_only) continue;
+
             Vec3 idle = idle_foot_position(params, i, control.shutdown_pose);
             control.shutdown_idle_swing[i] =
                 (control.shutdown_start_feet[i] - idle).norm() > IDLE_POSITION_TOLERANCE;
             needs_idle_settle = needs_idle_settle || control.shutdown_idle_swing[i];
         }
-        if (!needs_idle_settle) {
+        if (control.shutdown_lower_only || !needs_idle_settle) {
             control.shutdown_phase = ShutdownPhase::LOWER_BODY;
         }
+        if (!control.shutdown_lower_only) {
         for (int i = 0; i < 6; i++) {
             control.shutdown_start_feet[i] = idle_foot_position(params, i, control.shutdown_pose);
+            }
         }
     }
 
@@ -324,7 +302,7 @@ bool update_shutdown_sequence(double dt,
         gait_state.drag_distance[i] = 0.0;
     }
 
-    double body_height = LowBodyHeight;
+    double body_height = low_body_height();
     switch (control.shutdown_phase) {
         case ShutdownPhase::SETTLE_TO_IDLE: {
             int group_count = idle_settle_group_count(control.gait_type);
@@ -399,7 +377,7 @@ bool update_shutdown_sequence(double dt,
         case ShutdownPhase::LOWER_BODY: {
             double t = smoothstep(control.shutdown_phase_time / LOWER_TIME);
             body_height = control.shutdown_start_height
-                        + (LowBodyHeight - control.shutdown_start_height) * t;
+                        + (low_body_height() - control.shutdown_start_height) * t;
             for (int i = 0; i < 6; i++) {
                 feet_world[i] = {control.shutdown_start_feet[i].x,
                                  control.shutdown_start_feet[i].y,
@@ -408,25 +386,25 @@ bool update_shutdown_sequence(double dt,
             }
             if (control.shutdown_phase_time >= LOWER_TIME) {
                 control.shutdown_phase_time = 0.0;
-                body_height = LowBodyHeight;
-                if (control.shutdown_sit_only) {
+                body_height = low_body_height();
+                if (control.shutdown_lower_only) {
                     control.shutdown_phase = ShutdownPhase::DONE;
                     control.shutdown_complete = true;
-                } else {
-                    control.shutdown_phase = ShutdownPhase::SWING_MIDDLE_TO_TUCKED;
+                    break;
                 }
+                control.shutdown_phase = ShutdownPhase::SWING_MIDDLE_TO_LOW_HOME;
             }
             break;
         }
-        case ShutdownPhase::SWING_MIDDLE_TO_TUCKED: {
+        case ShutdownPhase::SWING_MIDDLE_TO_LOW_HOME: {
             double t = smoothstep(control.shutdown_phase_time / SWING_TIME);
-            body_height = LowBodyHeight;
+            body_height = low_body_height();
             BasePose low_pose = control.shutdown_pose;
-            low_pose.z = LowBodyHeight;
+            low_pose.z = low_body_height();
             for (int i = 0; i < 6; i++) {
-                Vec3 tucked = tucked_foot_position(params, i, low_pose);
+                Vec3 low_home = low_home_foot_position(params, i, low_pose);
                 Vec3 foot = is_middle_leg(i)
-                          ? lerp(control.shutdown_start_feet[i], tucked, t)
+                          ? lerp(control.shutdown_start_feet[i], low_home, t)
                           : control.shutdown_start_feet[i];
                 bool swinging = is_middle_leg(i);
                 if (swinging) {
@@ -436,22 +414,21 @@ bool update_shutdown_sequence(double dt,
                 feet_world[i] = foot;
             }
             if (control.shutdown_phase_time >= SWING_TIME) {
-                control.shutdown_phase = ShutdownPhase::SWING_BACK_LEFT_FRONT_RIGHT_TO_PERPENDICULAR;
+                control.shutdown_phase = ShutdownPhase::SWING_BACK_LEFT_FRONT_RIGHT_TO_LOW_HOME;
                 control.shutdown_phase_time = 0.0;
             }
             break;
         }
-        case ShutdownPhase::SWING_BACK_LEFT_FRONT_RIGHT_TO_PERPENDICULAR: {
+        case ShutdownPhase::SWING_BACK_LEFT_FRONT_RIGHT_TO_LOW_HOME: {
             double t = smoothstep(control.shutdown_phase_time / SWING_TIME);
-            body_height = LowBodyHeight;
+            body_height = low_body_height();
             BasePose low_pose = control.shutdown_pose;
-            low_pose.z = LowBodyHeight;
+            low_pose.z = low_body_height();
             for (int i = 0; i < 6; i++) {
-                Vec3 tucked = tucked_foot_position(params, i, low_pose);
-                Vec3 perpendicular = perpendicular_foot_position(params, i, low_pose);
+                Vec3 low_home = low_home_foot_position(params, i, low_pose);
                 Vec3 foot = is_back_left_front_right_group(i)
-                          ? lerp(control.shutdown_start_feet[i], perpendicular, t)
-                          : (is_front_left_back_right_group(i) ? control.shutdown_start_feet[i] : tucked);
+                          ? lerp(control.shutdown_start_feet[i], low_home, t)
+                          : (is_front_left_back_right_group(i) ? control.shutdown_start_feet[i] : low_home);
                 bool swinging = is_back_left_front_right_group(i);
                 if (swinging) {
                     foot.z = std::sin(t * M_PI) * SHUTDOWN_STEP_HEIGHT;
@@ -460,22 +437,21 @@ bool update_shutdown_sequence(double dt,
                 feet_world[i] = foot;
             }
             if (control.shutdown_phase_time >= SWING_TIME) {
-                control.shutdown_phase = ShutdownPhase::SWING_FRONT_LEFT_BACK_RIGHT_TO_PERPENDICULAR;
+                control.shutdown_phase = ShutdownPhase::SWING_FRONT_LEFT_BACK_RIGHT_TO_LOW_HOME;
                 control.shutdown_phase_time = 0.0;
             }
             break;
         }
-        case ShutdownPhase::SWING_FRONT_LEFT_BACK_RIGHT_TO_PERPENDICULAR: {
+        case ShutdownPhase::SWING_FRONT_LEFT_BACK_RIGHT_TO_LOW_HOME: {
             double t = smoothstep(control.shutdown_phase_time / SWING_TIME);
-            body_height = LowBodyHeight;
+            body_height = low_body_height();
             BasePose low_pose = control.shutdown_pose;
-            low_pose.z = LowBodyHeight;
+            low_pose.z = low_body_height();
             for (int i = 0; i < 6; i++) {
-                Vec3 tucked = tucked_foot_position(params, i, low_pose);
-                Vec3 perpendicular = perpendicular_foot_position(params, i, low_pose);
+                Vec3 low_home = low_home_foot_position(params, i, low_pose);
                 Vec3 foot = is_front_left_back_right_group(i)
-                          ? lerp(control.shutdown_start_feet[i], perpendicular, t)
-                          : (is_back_left_front_right_group(i) ? perpendicular : tucked);
+                          ? lerp(control.shutdown_start_feet[i], low_home, t)
+                          : low_home;
                 bool swinging = is_front_left_back_right_group(i);
                 if (swinging) {
                     foot.z = std::sin(t * M_PI) * SHUTDOWN_STEP_HEIGHT;
@@ -488,24 +464,22 @@ bool update_shutdown_sequence(double dt,
                 control.shutdown_complete = true;
                 for (int i = 0; i < 6; i++) {
                     gait_state.is_swing[i] = false;
-                    feet_world[i] = is_front_or_back_leg(i)
-                                  ? perpendicular_foot_position(params, i, low_pose)
-                                  : tucked_foot_position(params, i, low_pose);
+                    feet_world[i] = low_home_foot_position(params, i, low_pose);
                 }
             }
             break;
         }
         case ShutdownPhase::DONE:
-            body_height = LowBodyHeight;
+            body_height = low_body_height();
             control.shutdown_complete = true;
             {
                 BasePose low_pose = control.shutdown_pose;
-                low_pose.z = LowBodyHeight;
+                low_pose.z = low_body_height();
                 for (int i = 0; i < 6; i++) {
                     gait_state.is_swing[i] = false;
-                    feet_world[i] = is_front_or_back_leg(i)
-                                  ? perpendicular_foot_position(params, i, low_pose)
-                                  : tucked_foot_position(params, i, low_pose);
+                    feet_world[i] = control.shutdown_lower_only
+                                  ? control.shutdown_start_feet[i]
+                                  : low_home_foot_position(params, i, low_pose);
                 }
             }
             break;
@@ -533,7 +507,7 @@ bool update_startup_sequence(double dt,
                              Vec3 feet_world[6],
                              RobotFrameState& frame)
 {
-    constexpr double TUCKED_HOLD_TIME = 0.35;
+    constexpr double LOW_HOME_HOLD_TIME = 0.35;
     constexpr double SWING_TIME = 1.25;
     constexpr double LIFT_TIME = 1.20;
     constexpr double STARTUP_STEP_HEIGHT = 0.035;
@@ -543,7 +517,7 @@ bool update_startup_sequence(double dt,
     const auto& motion = config::Motion;
     control.startup_phase_time += dt;
     control.active_dance = DanceMode::NONE;
-    double body_height = LowBodyHeight;
+    double body_height = low_body_height();
     BasePose startup_pose = control.shutdown_pose;
     startup_pose.roll = 0.0;
     startup_pose.pitch = 0.0;
@@ -566,18 +540,18 @@ bool update_startup_sequence(double dt,
 
     switch (control.startup_phase) {
         case StartupPhase::PLACE_LOW_READY:
-            if (control.startup_phase_time >= TUCKED_HOLD_TIME) {
-                control.startup_phase = StartupPhase::SWING_FRONT_LEFT_BACK_RIGHT_TO_IDLE;
+            if (control.startup_phase_time >= LOW_HOME_HOLD_TIME) {
+                control.startup_phase = StartupPhase::SWING_FRONT_LEFT_BACK_RIGHT_FROM_LOW_HOME;
                 control.startup_phase_time = 0.0;
             }
             break;
-        case StartupPhase::SWING_FRONT_LEFT_BACK_RIGHT_TO_IDLE:
+        case StartupPhase::SWING_FRONT_LEFT_BACK_RIGHT_FROM_LOW_HOME:
             if (control.startup_phase_time >= SWING_TIME) {
-                control.startup_phase = StartupPhase::SWING_BACK_LEFT_FRONT_RIGHT_TO_IDLE;
+                control.startup_phase = StartupPhase::SWING_BACK_LEFT_FRONT_RIGHT_FROM_LOW_HOME;
                 control.startup_phase_time = 0.0;
             }
             break;
-        case StartupPhase::SWING_BACK_LEFT_FRONT_RIGHT_TO_IDLE:
+        case StartupPhase::SWING_BACK_LEFT_FRONT_RIGHT_FROM_LOW_HOME:
             if (control.startup_phase_time >= SWING_TIME) {
                 control.startup_phase = StartupPhase::SWING_MIDDLE_TO_IDLE;
                 control.startup_phase_time = 0.0;
@@ -590,8 +564,8 @@ bool update_startup_sequence(double dt,
             }
             break;
         case StartupPhase::LIFT_BODY:
-            body_height = LowBodyHeight
-                        + (motion.start_height - LowBodyHeight)
+            body_height = low_body_height()
+                        + (motion.start_height - low_body_height())
                         * smoothstep(control.startup_phase_time / LIFT_TIME);
             if (control.startup_phase_time >= LIFT_TIME) {
                 body_height = motion.start_height;
@@ -602,31 +576,30 @@ bool update_startup_sequence(double dt,
             return false;
     }
 
-    set_command_height(control, body_height);
+    set_command_height(control, body_height, false);
     startup_pose.z = body_height;
     base_pose = startup_pose;
     final_pose = base_pose;
 
     for (int i = 0; i < 6; i++) {
         BasePose low_pose = startup_pose;
-        low_pose.z = LowBodyHeight;
-        Vec3 tucked = tucked_foot_position(params, i, low_pose);
-        Vec3 perpendicular = perpendicular_foot_position(params, i, low_pose);
+        low_pose.z = low_body_height();
+        Vec3 low_home = low_home_foot_position(params, i, low_pose);
         Vec3 idle = idle_foot_position(params, i, startup_pose);
-        Vec3 foot = is_front_or_back_leg(i) ? perpendicular : tucked;
+        Vec3 foot = low_home;
         bool swinging = false;
         double swing_t = 0.0;
 
-        if (control.startup_phase == StartupPhase::SWING_FRONT_LEFT_BACK_RIGHT_TO_IDLE) {
+        if (control.startup_phase == StartupPhase::SWING_FRONT_LEFT_BACK_RIGHT_FROM_LOW_HOME) {
             swing_t = smoothstep(control.startup_phase_time / SWING_TIME);
             if (is_front_left_back_right_group(i)) {
-                foot = lerp(perpendicular, idle, swing_t);
+                foot = lerp(low_home, idle, swing_t);
                 swinging = true;
             }
-        } else if (control.startup_phase == StartupPhase::SWING_BACK_LEFT_FRONT_RIGHT_TO_IDLE) {
+        } else if (control.startup_phase == StartupPhase::SWING_BACK_LEFT_FRONT_RIGHT_FROM_LOW_HOME) {
             swing_t = smoothstep(control.startup_phase_time / SWING_TIME);
             if (is_back_left_front_right_group(i)) {
-                foot = lerp(perpendicular, idle, swing_t);
+                foot = lerp(low_home, idle, swing_t);
                 swinging = true;
             } else if (is_front_left_back_right_group(i)) {
                 foot = idle;
@@ -634,7 +607,7 @@ bool update_startup_sequence(double dt,
         } else if (control.startup_phase == StartupPhase::SWING_MIDDLE_TO_IDLE) {
             swing_t = smoothstep(control.startup_phase_time / SWING_TIME);
             if (is_middle_leg(i)) {
-                foot = lerp(tucked, idle, swing_t);
+                foot = lerp(low_home, idle, swing_t);
                 swinging = true;
             } else {
                 foot = idle;
@@ -649,12 +622,12 @@ bool update_startup_sequence(double dt,
             foot.z = std::sin(swing_t * M_PI) * STARTUP_STEP_HEIGHT;
         }
         gait_state.is_swing[i] = swinging;
-        gait_state.swing_start[i] = is_front_or_back_leg(i) ? perpendicular : tucked;
+        gait_state.swing_start[i] = low_home;
         feet_world[i] = project_foot_to_safe_workspace(params, i, base_pose, foot);
         gait_state.feet_world[i] = feet_world[i];
     }
 
-    hexapod_ik_solver(base_pose, control.cmd.body_radius, params, feet_world, robot_state, final_pose);
+    hexapod_ik_solver(base_pose, 0.0, params, feet_world, robot_state, final_pose);
     frame.current_pwm = pwm_from_robot_state(robot_state);
     frame.render_state = robot_state;
     frame.render_pwm = frame.current_pwm;
@@ -725,13 +698,13 @@ void update_locomotion_control(double dt,
     if (input.wifi_body_radius_control_active) {
         control.target_cmd.body_radius =
             std::clamp(static_cast<double>(input.wifi_body_radius),
-                       BodyRadiusMin,
-                       motion.body_radius);
+                       config::BodyRadiusMin,
+                       config::BodyRadiusMax);
     }
     const bool wifi_step_height_requested = input.wifi_available;
     const double wifi_step_height = std::clamp(static_cast<double>(input.wifi_step_height),
-                                               StepHeightMin,
-                                               StepHeightMax);
+                                               config::StepHeightMin,
+                                               config::StepHeightMax);
     if (input.wifi_speed_control_active) {
         const double linear_speed =
             std::clamp(static_cast<double>(input.wifi_speed),
@@ -807,8 +780,8 @@ void update_locomotion_control(double dt,
         }
         if (input.wifi_height_control_active || input.wifi_position_control_active) {
             double target_height = std::clamp(static_cast<double>(input.wifi_target_height),
-                                              LowBodyHeight,
-                                              WifiHeightMax);
+                                              low_body_height(),
+                                              motion.height_max);
             if (input.wifi_height_control_gentle) {
                 const double max_step = motion.height_rate * dt;
                 if (control.desired_height < target_height) {
@@ -847,11 +820,7 @@ void update_locomotion_control(double dt,
     control.target_cmd.twist.angular_z = control.current_spin_rate    * turn_input * spd;
 
     control.desired_height += motion.height_rate * dt * height_input * spd;
-    const double height_min = (flags.wifi_enabled
-                               && input.wifi_target_height < motion.height_min)
-                            ? LowBodyHeight
-                            : motion.height_min;
-    control.desired_height = std::clamp(control.desired_height, height_min, motion.height_max);
+    control.desired_height = std::clamp(control.desired_height, low_body_height(), motion.height_max);
     control.target_cmd.pose.z = control.desired_height;
     control.target_cmd.gait.step_height = wifi_step_height_requested
                                         ? wifi_step_height
@@ -938,11 +907,11 @@ RobotControlState make_robot_control_state()
     control.cmd.gait.stride_scale = 1.0;
     control.cmd.body_radius = motion.body_radius;
     control.cmd.pose.x = control.cmd.pose.y = 0.0;
-    control.cmd.pose.z = LowBodyHeight;
+    control.cmd.pose.z = low_body_height();
     control.cmd.pose.roll = control.cmd.pose.pitch = control.cmd.pose.yaw = 0.0;
     control.cmd.twist.linear_x = control.cmd.twist.linear_y = control.cmd.twist.angular_z = 0.0;
     control.target_cmd = control.cmd;
-    control.desired_height = LowBodyHeight;
+    control.desired_height = low_body_height();
     control.current_walk_speed = motion.walk_speed;
     control.current_strafe_speed = motion.strafe_speed;
     control.current_spin_rate = motion.spin_rate;
@@ -980,7 +949,7 @@ bool update_robot_control(const AppOptions& options,
             if (!control.shutdown_complete) {
                 control.shutdown_requested = true;
                 control.shutdown_exits = false;
-                control.shutdown_sit_only = false;
+                control.shutdown_lower_only = false;
             }
         } else if (control.shutdown_requested || control.shutdown_complete) {
             reset_shutdown_sequence(control);

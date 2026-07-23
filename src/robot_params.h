@@ -4,6 +4,7 @@
 // ============================================================
 #include "config.h"
 #include "types.h"
+#include <algorithm>
 #include <cmath>
 
 // ---- Link dimensions -------------------------------------------
@@ -24,61 +25,41 @@ struct BodyShape {
 struct RobotParams {
     RobotDims dims;
     BodyShape body;
-    double mount_angles[6];               // CCW from forward (X+) axis, radians
+    double mount_angles[6];               // body centre to coxa pivot, radians
     double mount_radii[6];                // distance from body centre to coxa pivot, m
+    double coxa_frame_angles[6];          // neutral coxa direction, radians
     Vec3   default_foot_positions[6];     // default foot positions in world frame
     double l_horiz = 0.0;                  // neutral horizontal reach from coxa pivot
 };
 
 // ---- Factory function ------------------------------------------
 //
-//  LEG LAYOUT (angles from +X / forward axis):
-//   Leg  Name  Angle
-//    0   R1    -36.297 deg  (front-right)
-//    1   R2    -90 deg  (mid-right)
-//    2   R3   -143.703 deg  (rear-right)
-//    3   L1    +36.297 deg  (front-left)
-//    4   L2    +90 deg  (mid-left)
-//    5   L3   +143.703 deg  (rear-left)
+//  Leg layout is loaded from config. Mount angles are measured from +X
+//  forward, with positive rotation toward the left side of the robot.
 //
 inline RobotParams get_robot_params()
 {
     RobotParams p;
 
-    // ---- Tuning ---------------------------------------------------
-    constexpr double TARGET_KNEE_DEG = config::NeutralStanceKneeAngleDeg;
-    constexpr double TARGET_BODY_Z   = config::NeutralStanceBodyHeight;
-    const     double D2R             = M_PI / 180.0;
+    const double D2R = M_PI / 180.0;
 
-    // ---- Mount angles (radians) -----------------------------------
-    for (int i = 0; i < 6; i++) {
-        p.mount_angles[i] = config::MountAnglesDeg[i] * D2R;
-    }
-
-    // ---- Mount radii (metres) ------------------------------------
-    for (int i = 0; i < 6; i++) {
-        p.mount_radii[i] = config::MountRadii[i];
-    }
-
-    // ---- Default foot positions ----------------------------------
-    // Derived from neutral stance geometry so adapters can preserve a
-    // preferred knee angle while changing link lengths or stance height.
     auto& d = p.dims;
-    double tibia_target = (TARGET_KNEE_DEG - 180.0) * D2R;
+    double tibia_target = (config::NeutralStanceKneeAngleDeg - 180.0) * D2R;
     double lcz = std::sqrt(d.femur_len*d.femur_len + d.tibia_len*d.tibia_len
                            + 2.0*d.femur_len*d.tibia_len*std::cos(tibia_target));
-    double lc_sq = lcz*lcz - TARGET_BODY_Z*TARGET_BODY_Z;
-    if (lc_sq < 0.0) lc_sq = 0.0;
-    p.l_horiz = std::sqrt(lc_sq) + d.coxa_len;
+    double lc_sq = lcz*lcz - config::NeutralStanceBodyHeight*config::NeutralStanceBodyHeight;
+    p.l_horiz = std::sqrt(std::max(0.0, lc_sq)) + d.coxa_len;
 
     for (int i = 0; i < 6; i++) {
-        double ma = p.mount_angles[i];
-        double coxa_neutral_angle = ma + config::CoxaAngleOffsetsDeg[i] * D2R;
-        double mr = p.mount_radii[i];
-        double cx_b = mr * std::cos(ma);
-        double cy_b = mr * std::sin(ma);
-        p.default_foot_positions[i].x = cx_b + p.l_horiz * std::cos(coxa_neutral_angle);
-        p.default_foot_positions[i].y = cy_b + p.l_horiz * std::sin(coxa_neutral_angle);
+        p.mount_angles[i] = config::MountAnglesDeg[i] * D2R;
+        p.mount_radii[i] = config::MountRadii[i];
+        p.coxa_frame_angles[i] = p.mount_angles[i];
+
+        double neutral_coxa_angle = p.mount_angles[i] + config::CoxaOffsetsDeg[i] * D2R;
+        double pivot_x = p.mount_radii[i] * std::cos(p.mount_angles[i]);
+        double pivot_y = p.mount_radii[i] * std::sin(p.mount_angles[i]);
+        p.default_foot_positions[i].x = pivot_x + p.l_horiz * std::cos(neutral_coxa_angle);
+        p.default_foot_positions[i].y = pivot_y + p.l_horiz * std::sin(neutral_coxa_angle);
         p.default_foot_positions[i].z = 0.0;
     }
 

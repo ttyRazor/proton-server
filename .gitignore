@@ -3,3 +3,4 @@ build/
 build-headless/
 build-mingw*/
 cmake-build-*/
+.vscode/

@@ -107,6 +107,7 @@ inline LegPoints compute_leg_fk(const RobotParams& params,
     double lt = params.dims.tibia_len;
     double ma = params.mount_angles[leg_index];
     double mr = params.mount_radii[leg_index];
+    double ca = params.coxa_frame_angles[leg_index];
 
     // Body → world
     // T_body = Tr(x,y,z) * Rz(yaw) * Ry(pitch) * Rx(roll)
@@ -118,7 +119,7 @@ inline LegPoints compute_leg_fk(const RobotParams& params,
     // Mount point (= coxa pivot, no hip joint on this platform).
     Mat4 T_mount = T_body
                  * Tr(mr * std::cos(ma), mr * std::sin(ma), 0.0)
-                 * Rz(ma);
+                 * Rz(ca);
 
     Mat4 T_coxa = T_mount * Rz(joints.coxa);
 
@@ -193,9 +194,9 @@ static void project_leg_target_to_safe_workspace(const RobotDims& dims,
 
     // Stay inside the hard solver limits so hardware commands do not ride
     // the mechanical stops when the animation asks for an unreachable foot.
-    constexpr double SAFE_COXA_LIMIT_DEG       = config::SafeCoxaLimitDeg;
-    constexpr double SAFE_TIBIA_FOLDED_DEG     = config::SafeTibiaFoldedDeg;
-    constexpr double SAFE_TIBIA_EXTENDED_DEG   = config::SafeTibiaExtendedDeg;
+    const double SAFE_COXA_LIMIT_DEG       = config::SafeCoxaLimitDeg;
+    const double SAFE_TIBIA_FOLDED_DEG     = config::SafeTibiaFoldedDeg;
+    const double SAFE_TIBIA_EXTENDED_DEG   = config::SafeTibiaExtendedDeg;
 
     double horiz = std::sqrt(x*x + y*y);
     double coxa_angle = (horiz <= 1e-9) ? 0.0 : std::atan2(y, x);
@@ -243,6 +244,7 @@ static void project_leg_target_to_safe_workspace(const RobotDims& dims,
 
 static Vec3 world_to_leg_local(double mount_angle,
                                double mount_radius,
+                               double coxa_frame_angle,
                                const BasePose& body_pose,
                                const Vec3& foot_world)
 {
@@ -272,8 +274,8 @@ static Vec3 world_to_leg_local(double mount_angle,
     double dx = txb - cx_piv;
     double dy = tyb - cy_piv;
 
-    double s_leg = std::sin(-mount_angle);
-    double c_leg = std::cos(-mount_angle);
+    double s_leg = std::sin(-coxa_frame_angle);
+    double c_leg = std::cos(-coxa_frame_angle);
 
     return {
         dx*c_leg - dy*s_leg,
@@ -284,15 +286,18 @@ static Vec3 world_to_leg_local(double mount_angle,
 
 static Vec3 leg_local_to_world(double mount_angle,
                                double mount_radius,
+                               double coxa_frame_angle,
                                const BasePose& body_pose,
                                const Vec3& foot_leg)
 {
     double s_mount = std::sin(mount_angle);
     double c_mount = std::cos(mount_angle);
+    double s_frame = std::sin(coxa_frame_angle);
+    double c_frame = std::cos(coxa_frame_angle);
 
-    double txb = foot_leg.x*c_mount - foot_leg.y*s_mount
+    double txb = foot_leg.x*c_frame - foot_leg.y*s_frame
                + mount_radius*c_mount;
-    double tyb = foot_leg.x*s_mount + foot_leg.y*c_mount
+    double tyb = foot_leg.x*s_frame + foot_leg.y*c_frame
                + mount_radius*s_mount;
     double tzb = foot_leg.z;
 
@@ -322,11 +327,13 @@ static Vec3 leg_local_to_world(double mount_angle,
 {
     Vec3 foot_leg = world_to_leg_local(params.mount_angles[leg],
                                        params.mount_radii[leg],
+                                       params.coxa_frame_angles[leg],
                                        body_pose,
                                        foot_world);
     project_leg_target_to_safe_workspace(params.dims, foot_leg.x, foot_leg.y, foot_leg.z);
     return leg_local_to_world(params.mount_angles[leg],
                               params.mount_radii[leg],
+                              params.coxa_frame_angles[leg],
                               body_pose,
                               foot_leg);
 }
@@ -334,12 +341,14 @@ static Vec3 leg_local_to_world(double mount_angle,
 static bool solve_leg_ik(const RobotDims& dims,
                           double mount_angle,
                           double mount_radius,
+                          double coxa_frame_angle,
                           const BasePose& body_pose,
                           const Vec3& foot_world,
                           LegJoints& joints)
 {
     // ---- 1. World → leg-local frame -------------------------------
-    Vec3 foot_leg = world_to_leg_local(mount_angle, mount_radius, body_pose, foot_world);
+    Vec3 foot_leg = world_to_leg_local(mount_angle, mount_radius, coxa_frame_angle,
+                                       body_pose, foot_world);
     double x = foot_leg.x;
     double y = foot_leg.y;
     double z = foot_leg.z;
@@ -402,6 +411,7 @@ inline void hexapod_ik_solver(const BasePose&    base_pose,
         bool ok = solve_leg_ik(params.dims,
                                params.mount_angles[i],
                                params.mount_radii[i],
+                               params.coxa_frame_angles[i],
                                base_pose, feet_world[i],
                                state.legs[i]);
         if (!ok) {

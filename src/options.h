@@ -10,7 +10,10 @@ struct AppOptions {
     int wifi_controller_port = 8080;
     bool show_help = false;
     bool parse_error = false;
+    bool config_path_explicit = false;
+    bool validate_config_only = false;
     std::string servo2040_port;
+    std::string config_path = "proton.conf";
 };
 
 void print_usage(const char* exe);

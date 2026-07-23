@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <csignal>
 #include <optional>
@@ -48,10 +49,6 @@ constexpr double CONNECTED_TIMEOUT_SECONDS = 2.0;
 constexpr double ACTIVE_TIMEOUT_SECONDS = 0.35;
 constexpr double HEIGHT_TARGET_TOLERANCE = 0.002;
 constexpr double MOTION_TARGET_TOLERANCE = 0.002;
-constexpr double HEIGHT_MAX = 0.14;
-constexpr double BODY_RADIUS_MIN = 0.10;
-constexpr double STEP_HEIGHT_MIN = 0.02;
-constexpr double STEP_HEIGHT_MAX = 0.12;
 constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
 
 using Clock = std::chrono::steady_clock;
@@ -134,12 +131,12 @@ double clamp_axis(double value)
 
 double clamp_body_radius(double value)
 {
-    return std::clamp(value, BODY_RADIUS_MIN, config::Motion.body_radius);
+    return std::clamp(value, config::BodyRadiusMin, config::BodyRadiusMax);
 }
 
 double clamp_step_height(double value)
 {
-    return std::clamp(value, STEP_HEIGHT_MIN, STEP_HEIGHT_MAX);
+    return std::clamp(value, config::StepHeightMin, config::StepHeightMax);
 }
 
 double clamp_speed(double value)
@@ -234,6 +231,23 @@ std::optional<WifiAxisAction> axis_action_from_string(std::string value)
     return std::nullopt;
 }
 
+template <typename T, typename... Rest>
+std::optional<T> first_present(const std::optional<T>& first, const Rest&... rest)
+{
+    if (first) return first;
+    if constexpr (sizeof...(rest) == 0) {
+        return std::nullopt;
+    } else {
+        return first_present<T>(rest...);
+    }
+}
+
+template <typename... Values>
+bool any_present(const Values&... values)
+{
+    return (... || values.has_value());
+}
+
 bool control_active(const WifiControllerSnapshot& snapshot)
 {
     const bool directional_control_enabled =
@@ -248,6 +262,29 @@ bool control_active(const WifiControllerSnapshot& snapshot)
         || snapshot.position_control_active
         || snapshot.gait_control_active
         || snapshot.relay_control_active;
+}
+
+std::string json_escape(const std::string& value)
+{
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (char ch : value) {
+        switch (ch) {
+            case '\\': escaped += "\\\\"; break;
+            case '"': escaped += "\\\""; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(ch) < 0x20) {
+                    escaped += ' ';
+                } else {
+                    escaped.push_back(ch);
+                }
+                break;
+        }
+    }
+    return escaped;
 }
 
 double seconds_since(Clock::time_point time)
@@ -497,6 +534,16 @@ std::string websocket_accept_key(const std::string& client_key)
     return base64_encode(digest.data(), digest.size());
 }
 
+std::string websocket_handshake_response(const std::string& client_key)
+{
+    std::ostringstream handshake;
+    handshake << "HTTP/1.1 101 Switching Protocols\r\n"
+              << "Upgrade: websocket\r\n"
+              << "Connection: Upgrade\r\n"
+              << "Sec-WebSocket-Accept: " << websocket_accept_key(client_key) << "\r\n\r\n";
+    return handshake.str();
+}
+
 std::string websocket_frame(const std::string& payload, unsigned char opcode = 0x1)
 {
     std::string frame;
@@ -636,9 +683,9 @@ std::optional<std::string> string_after_key(const std::string& body, const std::
 }
 
 std::optional<WifiAxisAction> axis_action_after_keys(const std::string& body,
-                                                     const std::vector<std::string>& keys)
+                                                     std::initializer_list<const char*> keys)
 {
-    for (const std::string& key : keys) {
+    for (const char* key : keys) {
         const auto value = string_after_key(body, key);
         if (!value) continue;
         return axis_action_from_string(*value);
@@ -667,6 +714,72 @@ std::optional<WifiJoystick> joystick_after_key(const std::string& body, const st
     return WifiJoystick{clamp_axis(*x), clamp_axis(*y)};
 }
 
+struct ControlRequest {
+    std::optional<WifiJoystick> primary;
+    std::optional<WifiJoystick> secondary;
+    std::optional<bool> relay;
+    std::optional<double> body_height;
+    std::optional<double> body_radius;
+    std::optional<double> step_height;
+    std::optional<double> speed;
+    std::optional<int> position;
+    std::optional<int> gait;
+    std::optional<double> voltage;
+    std::optional<double> current;
+    std::optional<WifiAxisAction> primary_x_action;
+    std::optional<WifiAxisAction> primary_y_action;
+    std::optional<WifiAxisAction> secondary_x_action;
+    std::optional<WifiAxisAction> secondary_y_action;
+};
+
+std::optional<ControlRequest> parse_control_request(const std::string& body)
+{
+    ControlRequest request;
+    request.primary = joystick_after_key(body, "\"primary\"");
+    request.secondary = joystick_after_key(body, "\"secondary\"");
+    request.relay = first_present<bool>(
+        bool_after_key(body, "\"relay_status\""),
+        bool_after_key(body, "\"relayStatus\""),
+        bool_after_key(body, "\"relay status\""),
+        bool_after_key(body, "\"relay\""));
+    request.body_height = first_present<double>(
+        number_after_key(body, "\"body_height\"", 0),
+        number_after_key(body, "\"bodyHeight\"", 0),
+        number_after_key(body, "\"body height\"", 0),
+        number_after_key(body, "\"height\"", 0));
+    request.body_radius = first_present<double>(
+        number_after_key(body, "\"body_radius\"", 0),
+        number_after_key(body, "\"bodyRadius\"", 0),
+        number_after_key(body, "\"body radius\"", 0));
+    request.step_height = first_present<double>(
+        number_after_key(body, "\"step_height\"", 0),
+        number_after_key(body, "\"stepHeight\"", 0),
+        number_after_key(body, "\"step height\"", 0));
+    request.speed = number_after_key(body, "\"speed\"", 0);
+    request.position = integer_after_key(body, "\"position\"", 0);
+    request.gait = integer_after_key(body, "\"gait\"", 0);
+    request.voltage = number_after_key(body, "\"voltage\"", 0);
+    request.current = number_after_key(body, "\"current\"", 0);
+    request.primary_x_action = axis_action_after_keys(
+        body, {"\"primary_x\"", "\"primaryX\"", "\"Primary X\""});
+    request.primary_y_action = axis_action_after_keys(
+        body, {"\"primary_y\"", "\"primaryY\"", "\"Primary Y\""});
+    request.secondary_x_action = axis_action_after_keys(
+        body, {"\"secondary_x\"", "\"secondaryX\"", "\"Secondary X\"", "\"seconary_x\"", "\"Seconary X\""});
+    request.secondary_y_action = axis_action_after_keys(
+        body, {"\"secondary_y\"", "\"secondaryY\"", "\"Secondary Y\"", "\"seconary_y\"", "\"Seconary Y\""});
+
+    if (!any_present(request.primary, request.secondary, request.relay,
+                     request.body_height, request.body_radius, request.step_height,
+                     request.speed, request.position, request.gait,
+                     request.voltage, request.current,
+                     request.primary_x_action, request.primary_y_action,
+                     request.secondary_x_action, request.secondary_y_action)) {
+        return std::nullopt;
+    }
+    return request;
+}
+
 std::string snapshot_json(const WifiControllerSnapshot& snapshot, const std::string& power_key = "")
 {
     std::ostringstream body;
@@ -676,10 +789,18 @@ std::string snapshot_json(const WifiControllerSnapshot& snapshot, const std::str
          << "\"updates\":" << snapshot.update_count << ","
          << "\"relay_status\":" << (snapshot.relay_status ? 1 : 0) << ","
          << "\"height\":" << snapshot.height << ","
+         << "\"height_min\":" << config::SitBodyHeight << ","
+         << "\"height_max\":" << config::Motion.height_max << ","
          << "\"body_height\":" << snapshot.height << ","
          << "\"body_radius\":" << snapshot.body_radius << ","
+         << "\"body_radius_min\":" << config::BodyRadiusMin << ","
+         << "\"body_radius_max\":" << config::BodyRadiusMax << ","
          << "\"step_height\":" << snapshot.step_height << ","
+         << "\"step_height_min\":" << config::StepHeightMin << ","
+         << "\"step_height_max\":" << config::StepHeightMax << ","
          << "\"speed\":" << snapshot.speed << ","
+         << "\"speed_min\":" << config::Motion.linear_speed_min << ","
+         << "\"speed_max\":" << config::Motion.linear_speed_max << ","
          << "\"position\":" << snapshot.position << ","
          << "\"gait\":" << snapshot.gait << ","
          << "\"voltage\":" << snapshot.voltage << ","
@@ -716,23 +837,7 @@ void append_json_string_array(std::ostringstream& body, const std::vector<std::s
     body << "[";
     for (std::size_t i = 0; i < lines.size(); i++) {
         if (i > 0) body << ",";
-        body << "\"";
-        for (char ch : lines[i]) {
-            switch (ch) {
-                case '\\': body << "\\\\"; break;
-                case '"': body << "\\\""; break;
-                case '\n': body << "\\n"; break;
-                case '\r': body << "\\r"; break;
-                case '\t': body << "\\t"; break;
-                default:
-                    if (static_cast<unsigned char>(ch) < 0x20) {
-                        body << " ";
-                    } else {
-                        body << ch;
-                    }
-            }
-        }
-        body << "\"";
+        body << "\"" << json_escape(lines[i]) << "\"";
     }
     body << "]";
 }
@@ -797,7 +902,7 @@ std::string logs_snapshot_json(const WifiControllerSnapshot& state,
     hud_lines.push_back(std::string("Input   : Wi-Fi :") + std::to_string(state.port)
                         + (state.client_connected ? " connected" : " waiting"));
     hud_lines.push_back("Height  : " + fixed_value(state.height, 3) + " m");
-    hud_lines.push_back("Body rad: " + fixed_value(state.body_radius, 3) + " m");
+    hud_lines.push_back("Stance r: " + fixed_value(state.body_radius, 3) + " m");
     hud_lines.push_back("Step hgt: " + fixed_value(state.step_height, 3) + " m");
     hud_lines.push_back("Speed   : " + fixed_value(state.speed, 3) + " m/s");
     hud_lines.push_back("Relay   : " + std::string(state.relay_status ? "on" : "off"));
@@ -808,7 +913,7 @@ std::string logs_snapshot_json(const WifiControllerSnapshot& state,
 
     if (visualizer.available) {
         hud_lines.push_back("Yaw     : " + fixed_value(visualizer.pose.yaw * RAD_TO_DEG, 1) + " deg");
-        hud_lines.push_back("--- IK angles (deg, tibia ext) ---");
+        hud_lines.push_back("--- IK angles (deg, tibia bend) ---");
         constexpr const char* leg_names[6] = {"R1", "R2", "R3", "L1", "L2", "L3"};
         for (int i = 0; i < 6; i++) {
             const LegJoints& joints = visualizer.legs[i].joints;
@@ -1225,7 +1330,7 @@ std::string WifiControllerServer::logs_json() const
         visualizer_snapshot = visualizer_;
     }
 
-    return logs_snapshot_json(state_snapshot, visualizer_snapshot, status_);
+    return logs_snapshot_json(snapshot(), visualizer_snapshot, status_);
 }
 
 void WifiControllerServer::serve_loop()
@@ -1336,13 +1441,7 @@ void WifiControllerServer::handle_visualizer_websocket(WifiSocket client, const 
         return;
     }
 
-    std::ostringstream handshake;
-    handshake << "HTTP/1.1 101 Switching Protocols\r\n"
-              << "Upgrade: websocket\r\n"
-              << "Connection: Upgrade\r\n"
-              << "Sec-WebSocket-Accept: " << websocket_accept_key(client_key) << "\r\n\r\n";
-
-    if (!send_all(client, handshake.str())) {
+    if (!send_all(client, websocket_handshake_response(client_key))) {
         close_wifi_socket(client);
         return;
     }
@@ -1371,13 +1470,7 @@ void WifiControllerServer::handle_websocket(WifiSocket client, const std::string
         return;
     }
 
-    std::ostringstream handshake;
-    handshake << "HTTP/1.1 101 Switching Protocols\r\n"
-              << "Upgrade: websocket\r\n"
-              << "Connection: Upgrade\r\n"
-              << "Sec-WebSocket-Accept: " << websocket_accept_key(client_key) << "\r\n\r\n";
-
-    if (!send_all(client, handshake.str())) {
+    if (!send_all(client, websocket_handshake_response(client_key))) {
         close_wifi_socket(client);
         return;
     }
@@ -1439,54 +1532,16 @@ bool WifiControllerServer::power_key_is_active(const std::string& key) const
 
 bool WifiControllerServer::update_coordinates(const std::string& body)
 {
-    const auto primary = joystick_after_key(body, "\"primary\"");
-    const auto secondary = joystick_after_key(body, "\"secondary\"");
-    const auto relay_status = bool_after_key(body, "\"relay_status\"");
-    const auto relay_status_camel = bool_after_key(body, "\"relayStatus\"");
-    const auto relay_status_space = bool_after_key(body, "\"relay status\"");
-    const auto relay = bool_after_key(body, "\"relay\"");
-    const auto height = number_after_key(body, "\"height\"", 0);
-    const auto body_height = number_after_key(body, "\"body_height\"", 0);
-    const auto body_height_camel = number_after_key(body, "\"bodyHeight\"", 0);
-    const auto body_height_space = number_after_key(body, "\"body height\"", 0);
-    const auto body_radius = number_after_key(body, "\"body_radius\"", 0);
-    const auto body_radius_camel = number_after_key(body, "\"bodyRadius\"", 0);
-    const auto body_radius_space = number_after_key(body, "\"body radius\"", 0);
-    const auto step_height = number_after_key(body, "\"step_height\"", 0);
-    const auto step_height_camel = number_after_key(body, "\"stepHeight\"", 0);
-    const auto step_height_space = number_after_key(body, "\"step height\"", 0);
-    const auto speed = number_after_key(body, "\"speed\"", 0);
-    const auto position = integer_after_key(body, "\"position\"", 0);
-    const auto gait = integer_after_key(body, "\"gait\"", 0);
-    const auto voltage = number_after_key(body, "\"voltage\"", 0);
-    const auto current = number_after_key(body, "\"current\"", 0);
-    const auto primary_x_action = axis_action_after_keys(
-        body, {"\"primary_x\"", "\"primaryX\"", "\"Primary X\""});
-    const auto primary_y_action = axis_action_after_keys(
-        body, {"\"primary_y\"", "\"primaryY\"", "\"Primary Y\""});
-    const auto secondary_x_action = axis_action_after_keys(
-        body, {"\"secondary_x\"", "\"secondaryX\"", "\"Secondary X\"", "\"seconary_x\"", "\"Seconary X\""});
-    const auto secondary_y_action = axis_action_after_keys(
-        body, {"\"secondary_y\"", "\"secondaryY\"", "\"Secondary Y\"", "\"seconary_y\"", "\"Seconary Y\""});
-
-    if (!primary && !secondary && !height && !body_height && !body_height_camel && !body_height_space
-        && !body_radius && !body_radius_camel && !body_radius_space
-        && !step_height && !step_height_camel && !step_height_space && !speed
-        && !position && !gait && !voltage && !current
-        && !relay_status && !relay_status_camel && !relay_status_space && !relay
-        && !primary_x_action && !primary_y_action && !secondary_x_action && !secondary_y_action) {
+    const auto request = parse_control_request(body);
+    if (!request) {
         return false;
     }
 
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         bool changed = false;
-        std::optional<bool> relay_request = relay_status;
-        if (!relay_request) relay_request = relay_status_camel;
-        if (!relay_request) relay_request = relay_status_space;
-        if (!relay_request) relay_request = relay;
-        if (relay_request) {
-            if (*relay_request) {
+        if (request->relay) {
+            if (*request->relay) {
                 state_.target_relay_status = true;
                 state_.relay_control_active = true;
                 state_.relay_switch_ready = true;
@@ -1509,98 +1564,88 @@ bool WifiControllerServer::update_coordinates(const std::string& body)
         const bool directional_control_enabled =
             state_.relay_status && state_.target_relay_status;
         if (directional_control_enabled) {
-            if (primary) {
-                state_.primary = *primary;
+            if (request->primary) {
+                state_.primary = *request->primary;
                 changed = true;
             }
-            if (secondary) {
-                state_.secondary = *secondary;
+            if (request->secondary) {
+                state_.secondary = *request->secondary;
                 changed = true;
             }
-        } else if ((primary || secondary)
+        } else if ((request->primary || request->secondary)
                    && (joystick_active(state_.primary)
                        || joystick_active(state_.secondary))) {
             state_.primary = {};
             state_.secondary = {};
             changed = true;
         }
-        if (primary_x_action) {
-            state_.primary_x_action = *primary_x_action;
+        if (request->primary_x_action) {
+            state_.primary_x_action = *request->primary_x_action;
             changed = true;
         }
-        if (primary_y_action) {
-            state_.primary_y_action = *primary_y_action;
+        if (request->primary_y_action) {
+            state_.primary_y_action = *request->primary_y_action;
             changed = true;
         }
-        if (secondary_x_action) {
-            state_.secondary_x_action = *secondary_x_action;
+        if (request->secondary_x_action) {
+            state_.secondary_x_action = *request->secondary_x_action;
             changed = true;
         }
-        if (secondary_y_action) {
-            state_.secondary_y_action = *secondary_y_action;
+        if (request->secondary_y_action) {
+            state_.secondary_y_action = *request->secondary_y_action;
             changed = true;
         }
         auto height_axis_value = [](WifiAxisAction action, double value) {
             return action == WifiAxisAction::HEIGHT && std::fabs(value) > ACTIVE_DEADZONE;
         };
         const bool height_axis_requested =
-            (primary
-             && (height_axis_value(state_.primary_x_action, primary->x)
-                 || height_axis_value(state_.primary_y_action, primary->y)))
-            || (secondary
-                && (height_axis_value(state_.secondary_x_action, secondary->x)
-                    || height_axis_value(state_.secondary_y_action, secondary->y)));
+            (request->primary
+             && (height_axis_value(state_.primary_x_action, request->primary->x)
+                 || height_axis_value(state_.primary_y_action, request->primary->y)))
+            || (request->secondary
+                && (height_axis_value(state_.secondary_x_action, request->secondary->x)
+                    || height_axis_value(state_.secondary_y_action, request->secondary->y)));
         if (height_axis_requested && !directional_control_enabled) {
             state_.primary = {};
             state_.secondary = {};
-            if (primary) {
-                if (state_.primary_x_action == WifiAxisAction::HEIGHT) state_.primary.x = primary->x;
-                if (state_.primary_y_action == WifiAxisAction::HEIGHT) state_.primary.y = primary->y;
+            if (request->primary) {
+                if (state_.primary_x_action == WifiAxisAction::HEIGHT) state_.primary.x = request->primary->x;
+                if (state_.primary_y_action == WifiAxisAction::HEIGHT) state_.primary.y = request->primary->y;
             }
-            if (secondary) {
-                if (state_.secondary_x_action == WifiAxisAction::HEIGHT) state_.secondary.x = secondary->x;
-                if (state_.secondary_y_action == WifiAxisAction::HEIGHT) state_.secondary.y = secondary->y;
+            if (request->secondary) {
+                if (state_.secondary_x_action == WifiAxisAction::HEIGHT) state_.secondary.x = request->secondary->x;
+                if (state_.secondary_y_action == WifiAxisAction::HEIGHT) state_.secondary.y = request->secondary->y;
             }
             changed = true;
         }
-        std::optional<double> body_height_request = body_height;
-        if (!body_height_request) body_height_request = body_height_camel;
-        if (!body_height_request) body_height_request = body_height_space;
-        if (!body_height_request) body_height_request = height;
-        if (body_height_request && !height_axis_mapped(state_)) {
+        if (request->body_height && !height_axis_mapped(state_)) {
             state_.user_target_height =
-                std::clamp(*body_height_request, config::SitBodyHeight, HEIGHT_MAX);
+                std::clamp(*request->body_height, config::SitBodyHeight, config::Motion.height_max);
             state_.target_height = state_.user_target_height;
             state_.height_control_active = true;
             state_.height_control_gentle = false;
             changed = true;
         }
-        std::optional<double> body_radius_request = body_radius;
-        if (!body_radius_request) body_radius_request = body_radius_camel;
-        if (!body_radius_request) body_radius_request = body_radius_space;
-        if (body_radius_request) {
-            state_.target_body_radius = clamp_body_radius(*body_radius_request);
+        if (request->body_radius) {
+            state_.target_body_radius = clamp_body_radius(*request->body_radius);
             state_.body_radius = state_.target_body_radius;
             state_.body_radius_control_active = true;
             changed = true;
         }
-        std::optional<double> step_height_request = step_height;
-        if (!step_height_request) step_height_request = step_height_camel;
-        if (!step_height_request) step_height_request = step_height_space;
-        if (step_height_request) {
-            state_.target_step_height = clamp_step_height(*step_height_request);
+        if (request->step_height) {
+            state_.target_step_height = clamp_step_height(*request->step_height);
             state_.step_height = state_.target_step_height;
             state_.step_height_control_active = true;
             changed = true;
         }
-        if (speed) {
-            state_.target_speed = clamp_speed(*speed);
+        if (request->speed) {
+            state_.target_speed = clamp_speed(*request->speed);
             state_.speed = state_.target_speed;
             state_.speed_control_active = true;
             changed = true;
         }
-        if (position) {
-            const int clamped_position = *position <= 0 ? 0 : 1;
+        if (request->position) {
+            const int clamped_position = *request->position <= 0 ? 0 : 1;
             const bool shutdown_in_progress =
                 state_.position_control_active && state_.target_position == 0;
             if (!(shutdown_in_progress && clamped_position == 1)) {
@@ -1616,19 +1661,19 @@ bool WifiControllerServer::update_coordinates(const std::string& body)
                 changed = true;
             }
         }
-        if (gait) {
-            const int clamped_gait = std::clamp(*gait, 1, 4);
+        if (request->gait) {
+            const int clamped_gait = std::clamp(*request->gait, 1, 4);
             state_.target_gait = clamped_gait;
             state_.gait = clamped_gait;
             state_.gait_control_active = true;
             changed = true;
         }
-        if (voltage) {
-            state_.voltage = std::max(0.0, *voltage);
+        if (request->voltage) {
+            state_.voltage = std::max(0.0, *request->voltage);
             changed = true;
         }
-        if (current) {
-            state_.current = std::max(0.0, *current);
+        if (request->current) {
+            state_.current = std::max(0.0, *request->current);
             changed = true;
         }
         if (changed) {

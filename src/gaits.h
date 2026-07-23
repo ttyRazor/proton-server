@@ -71,9 +71,16 @@ static void compute_neutral_foot_pos(int leg,
                                      double& base_x,
                                      double& base_y)
 {
-    double scale = std::min(1.0, body_radius / config::Motion.body_radius);
-    base_x = params.default_foot_positions[leg].x * scale;
-    base_y = params.default_foot_positions[leg].y * scale;
+    double middle_mount_radius = 0.5 * (params.mount_radii[1] + params.mount_radii[4]);
+    double reach_from_pivot = std::max(0.0, body_radius - middle_mount_radius);
+
+    double ma = params.mount_angles[leg];
+    double pivot_x = params.mount_radii[leg] * std::cos(ma);
+    double pivot_y = params.mount_radii[leg] * std::sin(ma);
+    double angle = std::atan2(params.default_foot_positions[leg].y - pivot_y,
+                              params.default_foot_positions[leg].x - pivot_x);
+    base_x = pivot_x + reach_from_pivot * std::cos(angle);
+    base_y = pivot_y + reach_from_pivot * std::sin(angle);
 }
 
 static Vec3 clamp_to_workspace(Vec3 target,
@@ -83,6 +90,7 @@ static Vec3 clamp_to_workspace(Vec3 target,
                                const config::GaitEngineConfig& gait_params)
 {
     double ma = params.mount_angles[leg];
+    double fa = params.coxa_frame_angles[leg];
     double final_yaw = base_pose.yaw;
 
     double cx_body = params.mount_radii[leg] * std::cos(ma);
@@ -95,8 +103,8 @@ static Vec3 clamp_to_workspace(Vec3 target,
     double px_b = px * cy_rot - py * sy_rot;
     double py_b = px * sy_rot + py * cy_rot;
 
-    double sh_inv = std::sin(-ma);
-    double ch_inv = std::cos(-ma);
+    double sh_inv = std::sin(-fa);
+    double ch_inv = std::cos(-fa);
     double xl = (px_b - cx_body) * ch_inv - (py_b - cy_body) * sh_inv;
     double yl = (px_b - cx_body) * sh_inv + (py_b - cy_body) * ch_inv;
     double zl = -base_pose.z;
@@ -122,8 +130,8 @@ static Vec3 clamp_to_workspace(Vec3 target,
         yl *= hc / h;
     }
 
-    double tx_b = (xl * ch_inv + yl * sh_inv) + cx_body;
-    double ty_b = (-xl * sh_inv + yl * ch_inv) + cy_body;
+    double tx_b = (xl * std::cos(fa) - yl * std::sin(fa)) + cx_body;
+    double ty_b = (xl * std::sin(fa) + yl * std::cos(fa)) + cy_body;
 
     double cfy = std::cos(final_yaw);
     double sfy = std::sin(final_yaw);

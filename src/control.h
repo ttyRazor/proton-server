@@ -25,8 +25,8 @@ struct ControlFlags {
 
 enum class StartupPhase {
     PLACE_LOW_READY = 0,
-    SWING_FRONT_LEFT_BACK_RIGHT_TO_IDLE = 1,
-    SWING_BACK_LEFT_FRONT_RIGHT_TO_IDLE = 2,
+    SWING_FRONT_LEFT_BACK_RIGHT_FROM_LOW_HOME = 1,
+    SWING_BACK_LEFT_FRONT_RIGHT_FROM_LOW_HOME = 2,
     SWING_MIDDLE_TO_IDLE = 3,
     LIFT_BODY = 4,
     DONE = 5
@@ -35,9 +35,9 @@ enum class StartupPhase {
 enum class ShutdownPhase {
     SETTLE_TO_IDLE = 0,
     LOWER_BODY = 1,
-    SWING_MIDDLE_TO_TUCKED = 2,
-    SWING_BACK_LEFT_FRONT_RIGHT_TO_PERPENDICULAR = 3,
-    SWING_FRONT_LEFT_BACK_RIGHT_TO_PERPENDICULAR = 4,
+    SWING_MIDDLE_TO_LOW_HOME = 2,
+    SWING_BACK_LEFT_FRONT_RIGHT_TO_LOW_HOME = 3,
+    SWING_FRONT_LEFT_BACK_RIGHT_TO_LOW_HOME = 4,
     DONE = 5
 };
 
@@ -49,7 +49,7 @@ struct RobotControlState {
     double startup_phase_time = 0.0;
     bool shutdown_requested = false;
     bool shutdown_exits = true;
-    bool shutdown_sit_only = false;
+    bool shutdown_lower_only = false;
     bool shutdown_initialized = false;
     bool shutdown_complete = false;
     ShutdownPhase shutdown_phase = ShutdownPhase::SETTLE_TO_IDLE;

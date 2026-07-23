@@ -9,46 +9,55 @@
 //    - Servo2040 pin order and hardware direction flips
 // ============================================================
 #include <array>
+#include <string>
+#include <vector>
 
 namespace config {
 
 // ---- Physical robot geometry (metres, degrees) ----------------
-inline constexpr double CoxaLength = 0.043;
-inline constexpr double FemurLength = 0.080;
-inline constexpr double TibiaLength = 0.134;
+inline double CoxaLength = 0.043;
+inline double FemurLength = 0.080;
+inline double TibiaLength = 0.134;
 
-inline constexpr double BodyLength = 0.140;
-inline constexpr double BodyWidth = 0.100;
-inline constexpr double BodyChamfer = 0.020;
+inline double BodyLength = 0.140;
+inline double BodyWidth = 0.100;
+inline double BodyChamfer = 0.020;
+
+// Builder-facing coxa-center measurements. The parser derives leg mount
+// geometry from these values; the visual chassis dimensions stay separate.
+inline double FrontRearCoxaWidth = 0.111436;
+inline double MiddleCoxaWidth = 0.143000;
+inline double FrontRearCoxaLength = 0.151719;
+inline double CornerLegAngleDeg = 55.0;
 
 // Simulation leg order: R1, R2, R3, L1, L2, L3.
-inline constexpr std::array<double, 6> MountAnglesDeg = {
-    -36.297, -90.000, -143.703, 36.297, 90.000, 143.703
+inline std::array<double, 6> MountAnglesDeg = {
+    -45, -90.000, -135, 45, 90.000, 135
 };
-inline constexpr std::array<double, 6> MountRadii = {
+inline std::array<double, 6> MountRadii = {
     0.094123, 0.071500, 0.094123, 0.094123, 0.071500, 0.094123
 };
 
 // Per-leg coxa output offsets, in degrees.
 // Leg order: R1, R2, R3, L1, L2, L3. Positive rotates CCW from each mount angle.
-inline constexpr std::array<double, 6> CoxaAngleOffsetsDeg = {
+inline std::array<double, 6> CoxaOffsetsDeg = {
     12.0, 0.0, -12.0, -12.0, 0.0, 12.0
 };
 
-// Neutral stance geometry used to derive default foot XY positions.
-// Runtime standing height is Motion.start_height, not NeutralStanceBodyHeight.
-inline constexpr double NeutralStanceKneeAngleDeg = 115.0;
-inline constexpr double NeutralStanceBodyHeight = 0.12;
-inline constexpr double DefaultKneeAngleDeg = NeutralStanceKneeAngleDeg;
-inline constexpr double DefaultBodyHeight = NeutralStanceBodyHeight;
-inline constexpr double SitBodyHeight = 0.02;
+inline double NeutralStanceKneeAngleDeg = 115.0;
+inline double NeutralStanceBodyHeight = 0.12;
+inline double SitBodyHeight = 0.02;
 
 // ---- IK and workspace limits (degrees) ------------------------
-inline constexpr double SafeCoxaLimitDeg = 72.0;
-inline constexpr double SafeTibiaFoldedDeg = -140.0;
-inline constexpr double SafeTibiaExtendedDeg = -15.0;
-inline constexpr double FemurMinDeg = -85.0;
-inline constexpr double FemurMaxDeg = 85.0;
+inline double SafeCoxaLimitDeg = 72.0;
+inline double SafeTibiaFoldedDeg = -140.0;
+inline double SafeTibiaExtendedDeg = -15.0;
+inline double FemurMinDeg = -85.0;
+inline double FemurMaxDeg = 85.0;
+inline double BodyRadiusMin = 0.230;
+inline double BodyRadiusMax = 0.280;
+inline double StepHeightMin = 0.020;
+inline double StepHeightMax = 0.120;
 
 // ---- Locomotion defaults --------------------------------------
 struct MotionConfig {
@@ -76,10 +85,10 @@ struct MotionConfig {
     double dance_rate_hz;
 };
 
-inline constexpr MotionConfig Motion = {
+inline MotionConfig Motion = {
     2.0,        // cycle_time
     0.08,       // step_height
-    0.15,       // body_radius
+    0.252,      // body_radius
     0.056,      // start_height
     0.05,       // height_min
     0.18,       // height_max
@@ -121,7 +130,7 @@ struct GaitEngineConfig {
     double max_angular_speed;
 };
 
-inline constexpr GaitEngineConfig GaitEngine = {
+inline GaitEngineConfig GaitEngine = {
     2.0,    // cmd_smooth_hz
     0.17,   // step_height_full_speed
     0.25,   // step_height_min_factor
@@ -149,23 +158,23 @@ inline constexpr float GamepadStickDeadzone = 0.14f;
 inline constexpr float GamepadTriggerDeadzone = 0.08f;
 
 // ---- Servo calibration ----------------------------------------
-inline constexpr double ServoCoxaCenterDeg = 135.0;
-inline constexpr double ServoFemurCenterDeg = 100.0;
-inline constexpr double ServoTibiaCenterDeg = 225.0;
-inline constexpr int PwmMin = 500;
-inline constexpr int PwmMax = 2500;
-inline constexpr int PwmNeutral = 1500;
-inline constexpr double ServoAngleRangeDeg = 270.0;
+inline double ServoCoxaCenterDeg = 135.0;
+inline double ServoFemurCenterDeg = 100.0;
+inline double ServoTibiaCenterDeg = 225.0;
+inline int PwmMin = 500;
+inline int PwmMax = 2500;
+inline int PwmNeutral = 1500;
+inline double ServoAngleRangeDeg = 270.0;
 
 // Servo2040 hardware pin order. Each pin maps to one simulated leg and joint.
 // Joint indices: 0=coxa, 1=femur, 2=tibia.
-inline constexpr std::array<int, 18> Servo2040PinLeg = {
+inline std::array<int, 18> Servo2040PinLeg = {
     2, 2, 2, 5, 5, 5, 1, 1, 1, 4, 4, 4, 0, 0, 0, 3, 3, 3
 };
-inline constexpr std::array<int, 18> Servo2040PinJoint = {
+inline std::array<int, 18> Servo2040PinJoint = {
     0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2
 };
-inline constexpr std::array<bool, 18> Servo2040FlipForHardware = {
+inline std::array<bool, 18> Servo2040FlipForHardware = {
     true, false, true,
     true, true,  false,
     true, false, true,
@@ -173,19 +182,28 @@ inline constexpr std::array<bool, 18> Servo2040FlipForHardware = {
     true, false, true,
     true, true,  false
 };
-inline constexpr int Servo2040FlipPwmSum = 3000;
-inline constexpr double Servo2040VoltagePollInterval = 0.50;
-inline constexpr double Servo2040VoltageStartupDelay = 3.0;
-inline constexpr int Servo2040VoltageCriticalSamples = 2;
-inline constexpr double Servo2040VoltageWarn = 7.0;
-inline constexpr double Servo2040VoltageCritical = 6.0;
-inline constexpr double Servo2040VoltageScale = 310.3;
-inline constexpr int Servo2040CurrentOffset = 512;
-inline constexpr double Servo2040CurrentScale = 0.0814;
-inline constexpr double VoltageWarningPulseSeconds = 5.0;
+inline int Servo2040FlipPwmSum = 3000;
+inline double Servo2040VoltagePollInterval = 0.50;
+inline double Servo2040VoltageStartupDelay = 3.0;
+inline int Servo2040VoltageCriticalSamples = 2;
+inline double Servo2040VoltageWarn = 7.0;
+inline double Servo2040VoltageCritical = 6.0;
+inline double Servo2040VoltageScale = 310.3;
+inline int Servo2040CurrentOffset = 512;
+inline double Servo2040CurrentScale = 0.0814;
+inline double VoltageWarningPulseSeconds = 5.0;
 
 // ---- Rendering -------------------------------------------------
 inline constexpr float FootprintLifetime = 12.0f;
 inline constexpr int MaxFootprints = 2000;
+
+struct LoadResult {
+    bool loaded = false;
+    bool ok = true;
+    std::vector<std::string> errors;
+    std::vector<std::string> warnings;
+};
+
+LoadResult load_user_config(const std::string& path, bool required);
 
 } // namespace config
