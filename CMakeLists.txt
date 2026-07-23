@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 #  Executable
 # ============================================================
 add_executable(proton-server
+    src/config.cpp
     src/control.cpp
     src/input_headless.cpp
     src/main.cpp
