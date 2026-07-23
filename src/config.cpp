@@ -358,6 +358,8 @@ LoadResult load_user_config(const std::string& path, bool required)
             result.warnings.push_back("line " + std::to_string(line_number)
                                       + ": ignored deprecated key height_min_mm; use sitting_height_mm");
         }
+        else if (key == "voltage_warn_v") assign_double(Servo2040VoltageWarn, value, result, line_number);
+        else if (key == "voltage_critical_v") assign_double(Servo2040VoltageCritical, value, result, line_number);
         else if (key == "height_max_mm") assign_positive_mm(Motion.height_max, value, result, line_number);
         else if (key == "speed_min_mps") assign_double(Motion.linear_speed_min, value, result, line_number);
         else if (key == "speed_max_mps") assign_double(Motion.linear_speed_max, value, result, line_number);
