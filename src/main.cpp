@@ -115,6 +115,15 @@ struct ServoTelemetry {
     }
 };
 
+bool local_robot_activity(const KeyStatus& keys, const RobotControlState& control)
+{
+    return keys.kW || keys.kS || keys.kA || keys.kD
+        || keys.kQ || keys.kE || keys.kR || keys.kF
+        || control.active_dance != DanceMode::NONE
+        || control.startup_phase != StartupPhase::DONE
+        || control.shutdown_requested;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -200,15 +209,6 @@ int main(int argc, char** argv)
     bool shutdown_requested = false;
     bool shutdown_complete = false;
     ServoTelemetry telemetry;
-    double voltage_poll_time = config::Servo2040VoltagePollInterval;
-    double relay_active_time = 0.0;
-    int voltage_critical_samples = 0;
-    bool voltage_valid = false;
-    double servo_voltage = 0.0;
-    bool current_valid = false;
-    double servo_current = 0.0;
-    bool voltage_warning = false;
-    bool voltage_critical = false;
     double relay_inactivity_time = 0.0;
     ControlInputState control_input;
 
@@ -252,46 +252,8 @@ int main(int argc, char** argv)
             std::chrono::duration<double>(frame_start_time - last_frame_time).count(),
             0.05);
         last_frame_time = frame_start_time;
-        if (options.servo2040_enabled && servo2040.is_connected() && !voltage_critical) {
-            if (servo2040.relay_enabled()) {
-                relay_active_time += dt;
-            } else {
-                relay_active_time = 0.0;
-                voltage_critical_samples = 0;
-                voltage_warning = false;
-            }
-            voltage_poll_time += dt;
-            if (voltage_poll_time >= config::Servo2040VoltagePollInterval) {
-                voltage_poll_time = 0.0;
-                double reading = 0.0;
-                if (servo2040.read_voltage(reading)) {
-                    servo_voltage = reading;
-                    voltage_valid = true;
-                    wifi_controller.update_voltage(servo_voltage);
-                    const bool voltage_guard_armed =
-                        servo2040.relay_enabled()
-                        && relay_active_time >= config::Servo2040VoltageStartupDelay;
-                    voltage_warning = voltage_guard_armed
-                                   && servo_voltage < config::Servo2040VoltageWarn;
-                    if (voltage_guard_armed
-                        && servo_voltage < config::Servo2040VoltageCritical) {
-                        voltage_critical_samples++;
-                        if (voltage_critical_samples >= config::Servo2040VoltageCriticalSamples) {
-                            voltage_critical = true;
-                            voltage_warning = false;
-                            shutdown_requested = true;
-                        }
-                    } else {
-                        voltage_critical_samples = 0;
-                    }
-                }
-                double current_reading = 0.0;
-                if (servo2040.read_current(current_reading)) {
-                    servo_current = current_reading;
-                    current_valid = true;
-                    wifi_controller.update_current(servo_current);
-                }
-            }
+        if (options.servo2040_enabled && servo2040.is_connected() && telemetry.poll(dt, servo2040, wifi_controller)) {
+            shutdown_requested = true;
         }
 
         set_wifi_requested_relay();
@@ -315,16 +277,11 @@ int main(int argc, char** argv)
                                              wifi_speed_from_control(control));
         wifi_controller.update_shutdown_complete(control.shutdown_complete);
         WifiControllerSnapshot activity_snapshot = wifi_controller.snapshot();
-        const bool local_robot_activity =
-            keys.kW || keys.kS || keys.kA || keys.kD || keys.kQ || keys.kE || keys.kR || keys.kF
-            || control.active_dance != DanceMode::NONE
-            || control.startup_phase != StartupPhase::DONE
-            || control.shutdown_requested;
         const bool relay_can_timeout =
             activity_snapshot.relay_status
             && activity_snapshot.target_relay_status
             && !activity_snapshot.relay_control_active;
-        if (relay_can_timeout && !activity_snapshot.active && !local_robot_activity) {
+        if (relay_can_timeout && !activity_snapshot.active && !local_robot_activity(keys, control)) {
             relay_inactivity_time += dt;
             if (relay_inactivity_time >= WifiRelayInactivityTimeout) {
                 wifi_controller.request_relay_status(false, false);
@@ -367,15 +324,6 @@ int main(int argc, char** argv)
         wifi_controller.update_visualizer_frame(final_pose, fk_pts, feet_world,
                                                 gait_state.is_swing, frame.render_state,
                                                 frame.render_pwm);
-
-        (void)max_err;
-        (void)max_drag;
-        (void)voltage_valid;
-        (void)current_valid;
-        (void)servo_voltage;
-        (void)servo_current;
-        (void)voltage_warning;
-        (void)voltage_critical;
         std::this_thread::sleep_until(frame_start_time + target_frame_duration);
     }
 
