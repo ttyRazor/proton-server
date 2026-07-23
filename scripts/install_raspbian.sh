@@ -4,7 +4,7 @@ set -eu
 SERVICE_NAME="proton-server"
 BRANCH="headless"
 BRANCH_SET=0
-APP_ARGS=""
+APP_ARGS="--config ${PROTON_CONF}}"
 SERVICE_USER="${SUDO_USER:-$(id -un)}"
 START_SERVICE=1
 VERBOSE=0
@@ -195,6 +195,7 @@ else
     SUDO="sudo"
 fi
 
+PROTON_CONF=/etc/proton-server.conf
 HOSTAPD_CONF="/etc/hostapd/proton-server.conf"
 DNSMASQ_CONF="/etc/dnsmasq.d/proton-server.conf"
 HOTSPOT_RUNNER="/usr/local/sbin/proton-hotspot-run"
@@ -333,6 +334,7 @@ write_server_service() {
         echo "[Install]"
         echo "WantedBy=multi-user.target"
     } | $SUDO tee "$SERVICE_FILE" >/dev/null
+    cp $REPO_DIR/proton-server.conf "$PROTON_CONF"
 }
 
 cd "$REPO_DIR"
