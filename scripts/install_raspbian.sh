@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-PROTON_CONF="/etc/proton-server.conf"
+PROTON_CONF="/etc/proton.conf"
 HOSTAPD_CONF="/etc/hostapd/proton-server.conf"
 DNSMASQ_CONF="/etc/dnsmasq.d/proton-server.conf"
 HOTSPOT_RUNNER="/usr/local/sbin/proton-hotspot-run"
