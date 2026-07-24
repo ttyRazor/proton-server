@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gamepad + Video Stream Template</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: radial-gradient(circle at top, #23324a, #0d1320 65%);
+            color: #f5f7fb;
+        }
+
+        .shell {
+            width: min(960px, calc(100vw - 32px));
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .panel {
+            background: rgba(12, 16, 28, 0.88);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+        }
+
+        .video-wrap {
+            padding: 12px;
+        }
+
+        video {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 12px;
+            background: #000;
+            object-fit: cover;
+            display: block;
+        }
+
+        .side {
+            padding: 0px;
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: 1.3rem;
+        }
+
+        .status {
+            margin-top: 12px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            font-size: 0.95rem;
+        }
+
+        .status strong {
+            display: inline-block;
+            min-width: 100px;
+        }
+
+        .status .status-row+.status-row {
+            margin-top: 6px;
+        }
+
+        .badge {
+            display: inline-block;
+            margin-right: 6px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #1d7cf2;
+            font-size: 0.75rem;
+        }
+
+        @media (max-width: 768px) {
+            .shell {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <section class="panel video-wrap">
+            <img src="http://hexapod0.local.:8089/stream.mjpg" sizes="auto, (max-width: 30em) 100vw, (max-width: 50em) 50vw, calc(33vw - 100px)" alt="Video Stream"></img>
+        </section>
+
+        <aside class="panel side">
+            <h1>Gamepad Template</h1>
+            <div class="badge">LIVE</div>
+            <span>Video stream + gamepad input</span>
+
+            <div class="status">
+                <div class="status-row"><strong>Connected:</strong> <span id="gamepad-status">No gamepad</span></div>
+                <div class="status-row"><strong>Axes:</strong> <span id="axes-status">-</span></div>
+                <div class="status-row"><strong>Buttons:</strong> <span id="buttons-status">-</span></div>
+                <div class="status-row"><strong>WebSocket:</strong> <span id="ws-status">Connecting…</span></div>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        const streamEl = document.getElementById('stream');
+        const gamepadStatusEl = document.getElementById('gamepad-status');
+        const axesStatusEl = document.getElementById('axes-status');
+        const buttonsStatusEl = document.getElementById('buttons-status');
+        const websocketStatusEl = document.getElementById('ws-status');
+        const websocketHost = 'hexapod0.local.';
+        const websocketUrl = `ws://${websocketHost}:8080/control/ws`;
+
+        let hexapodPayload = {
+            primary: { x: 0.0, y: 1.0 },
+            secondary: { x: 0.0, y: 0.0 },
+            primary_x: 'spin',
+            primary_y: 'march',
+            secondary_x: 'strafe',
+            secondary_y: 'none',
+            relay_status: 1,
+            body_height: 0.056,
+            body_radius: 0.15,
+            step_height: 0.08,
+            speed: 0.15,
+            position: 1,
+            gait: 1,
+            voltage: 0.0,
+            current: 0.0
+        };
+        let websocket = null;
+
+        function connectWebSocket() {
+            websocketStatusEl.textContent = 'Connecting…';
+
+            try {
+                websocket = new WebSocket(websocketUrl);
+            } catch (err) {
+                console.error('Unable to create WebSocket:', err);
+                websocketStatusEl.textContent = 'Error';
+                return;
+            }
+
+            websocket.addEventListener('open', () => {
+                websocketStatusEl.textContent = 'Connected';
+            });
+
+            websocket.addEventListener('close', () => {
+                websocketStatusEl.textContent = 'Disconnected';
+            });
+
+            websocket.addEventListener('error', () => {
+                websocketStatusEl.textContent = 'Error';
+            });
+            websocket.addEventListener('message', (event) => {
+                console.log('Received message:', event.data);
+                websocketStatusEl.textContent = event.data;
+
+                payload = JSON.parse(event.data);
+
+            });
+        }
+
+        function updateGamepadUI() {
+            const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+            const pad = pads.find(Boolean);
+
+            if (!pad) {
+                gamepadStatusEl.textContent = 'No gamepad';
+                axesStatusEl.textContent = '-';
+                buttonsStatusEl.textContent = '-';
+                return;
+            }
+
+            gamepadStatusEl.textContent = pad.id;
+            axesStatusEl.textContent = pad.axes.map((value) => value.toFixed(2)).join(', ');
+            const buttonLabels = pad.buttons.map((button, index) => {
+                return `${index}:${button.pressed ? 1 : 0}`;
+            }).join(' ');
+            buttonsStatusEl.textContent = buttonLabels;
+
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                hexapodPayload.primary = { x: pad.axes[0], y: pad.axes[1] }
+                hexapodPayload.secondary = { x: pad.axes[2], y: pad.axes[3] }
+
+            };
+            websocket.send(JSON.stringify(hexapodPayload));
+        }
+
+
+        window.addEventListener('gamepadconnected', () => {
+            updateGamepadUI();
+        });
+
+        window.addEventListener('gamepaddisconnected', () => {
+            updateGamepadUI();
+        });
+
+        function loop() {
+            updateGamepadUI();
+            requestAnimationFrame(loop);
+        }
+
+        connectWebSocket();
+        loop();
+    </script>
+</body>
+
+</html>
