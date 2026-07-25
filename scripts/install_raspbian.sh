@@ -337,6 +337,49 @@ write_server_service() {
     run $SUDO cp $REPO_DIR/proton.conf "$PROTON_CONF"
 }
 
+write_camserver_service() {
+    SERVICE_FILE="/etc/systemd/system/mjpeg_camera.service"
+    {
+        echo "[Unit]"
+        echo "Description=MJPEG camera server"
+        echo "After=network-online.target proton-hotspot.service"
+        echo "Wants=network-online.target proton-hotspot.service"
+        echo
+        echo "[Socket]"
+        echo "Type=simple"
+        echo "User=$SERVICE_USER"
+        echo "WorkingDirectory=$REPO_DIR"
+        echo "ExecStart=python3 $REPO_DIR/camera/mjpeg_camera.py"
+        echo "Restart=on-failure"
+        echo "RestartSec=3"
+        echo
+        echo "[Install]"
+        echo "WantedBy=multi-user.target"
+    } | $SUDO tee "$SERVICE_FILE" >/dev/null
+    SOCKET_FILE="/etc/systemd/system/mjpeg_camera.socket"
+    {
+        echo "[Unit]"
+        echo "Description=MJPEG camera server socket"
+        echo "After=network-online.target proton-hotspot.service"
+        echo "Wants=network-online.target proton-hotspot.service"
+        echo
+        echo "[Socket]"
+        echo "ListenStream=8089"
+        echo "Accept=no"
+        echo
+        echo "[Install]"
+        echo "WantedBy=sockets.target"
+    } | $SUDO tee "$SOCKET_FILE" >/dev/null
+}
+write_caddy_config() {
+    CADDYFILE="/etc/caddy/Caddyfile"
+    {
+        echo ":80 {"
+        echo "    root * $REPO_DIR/assets"
+        echo "}"
+    } | $SUDO tee "$CADDYFILE" >/dev/null
+}
+
 cd "$REPO_DIR"
 banner
 
@@ -383,6 +426,8 @@ EXECUTABLE="$BUILD_DIR/proton-server"
 
 section "Installing startup services"
 write_server_service
+write_camserver_service
+write_caddy_config
 run $SUDO systemctl daemon-reload
 run_optional $SUDO systemctl unmask hostapd
 run_optional $SUDO systemctl disable --now hostapd
@@ -390,6 +435,8 @@ run_optional $SUDO systemctl disable --now dnsmasq
 run_optional $SUDO rm -f /etc/proton-server/hotspot-enabled
 run $SUDO systemctl enable proton-hotspot.service
 run $SUDO systemctl enable "$SERVICE_NAME.service"
+run $SUDO systemctl enable mjpeg_camera.socket
+run $SUDO systemctl reload caddy
 
 if [ "$START_SERVICE" -eq 1 ]; then
     section "Starting services"

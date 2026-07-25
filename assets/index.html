@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gamepad + Video Stream Template</title>
+    <link rel="icon" type="image/png" href="/previewdark.png" />
     <style>
         :root {
             color-scheme: dark;
@@ -94,7 +95,7 @@
 <body>
     <div class="shell">
         <section class="panel video-wrap">
-            <img src="http://hexapod0.local.:8089/stream.mjpg" sizes="auto, (max-width: 30em) 100vw, (max-width: 50em) 50vw, calc(33vw - 100px)" alt="Video Stream"></img>
+            <img src="/stream.mjpg" sizes="auto"></img>
         </section>
 
         <aside class="panel side">
@@ -163,7 +164,7 @@
             });
             websocket.addEventListener('message', (event) => {
                 console.log('Received message:', event.data);
-                websocketStatusEl.textContent = event.data;
+                websocketStatusEl.textContent = JSON.stringify(JSON.parse(event.data), null, 2 );
 
                 payload = JSON.parse(event.data);
 
