@@ -5,7 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gamepad + Video Stream Template</title>
-    <link rel="icon" type="image/png" href="/previewdark.png" />
+    <link rel="favicon" type="image/png" href="/previewdark.png" />
     <style>
         :root {
             color-scheme: dark;
@@ -113,6 +113,14 @@
     </div>
 
     <script>
+        const link = document.getElementById('favicon');
+        const dark = window.matchMedia('(prefers-color-scheme: dark)');
+        const setIcon = () => {
+            link.href = dark.matches ? '/previewdark.png' : '/preview.png';
+        };
+        setIcon();
+        dark.addEventListener('change', setIcon);
+
         const streamEl = document.getElementById('stream');
         const gamepadStatusEl = document.getElementById('gamepad-status');
         const axesStatusEl = document.getElementById('axes-status');

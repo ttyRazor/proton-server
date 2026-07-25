@@ -338,14 +338,14 @@ write_server_service() {
 }
 
 write_camserver_service() {
-    SERVICE_FILE="/etc/systemd/system/mjpeg_camera.service"
+    SERVICE_FILE="/etc/systemd/system/mjpeg-server.service"
     {
         echo "[Unit]"
         echo "Description=MJPEG camera server"
         echo "After=network-online.target proton-hotspot.service"
         echo "Wants=network-online.target proton-hotspot.service"
         echo
-        echo "[Socket]"
+        echo "[Service]"
         echo "Type=simple"
         echo "User=$SERVICE_USER"
         echo "WorkingDirectory=$REPO_DIR"
@@ -356,28 +356,21 @@ write_camserver_service() {
         echo "[Install]"
         echo "WantedBy=multi-user.target"
     } | $SUDO tee "$SERVICE_FILE" >/dev/null
-    SOCKET_FILE="/etc/systemd/system/mjpeg_camera.socket"
-    {
-        echo "[Unit]"
-        echo "Description=MJPEG camera server socket"
-        echo "After=network-online.target proton-hotspot.service"
-        echo "Wants=network-online.target proton-hotspot.service"
-        echo
-        echo "[Socket]"
-        echo "ListenStream=8089"
-        echo "Accept=no"
-        echo
-        echo "[Install]"
-        echo "WantedBy=sockets.target"
-    } | $SUDO tee "$SOCKET_FILE" >/dev/null
 }
 write_caddy_config() {
     CADDYFILE="/etc/caddy/Caddyfile"
     {
         echo ":80 {"
-        echo "    root * $REPO_DIR/assets"
+        echo "\thandle /stream.mjpg {"
+        echo "\t\treverse_proxy localhost:8089"
+        echo "\t}"
+        echo "\thandle {"
+        echo "\t\troot * /var/www/html"
+        echo "\t\tfile_server"
         echo "}"
     } | $SUDO tee "$CADDYFILE" >/dev/null
+    run $SUDO mkdir -p /var/www/html
+    run $SUDO cp -r $REPO_DIR/assets/* /var/www/html/
 }
 
 cd "$REPO_DIR"
@@ -392,7 +385,7 @@ echo "Hotspot: $HOTSPOT_SSID on $AP_IFACE from $WIFI_IFACE"
 
 section "Installing dependencies"
 run $SUDO apt-get update
-PACKAGES="ca-certificates git build-essential cmake pkg-config hostapd dnsmasq iw wireless-tools rfkill iproute2 procps"
+PACKAGES="ca-certificates git build-essential cmake pkg-config hostapd dnsmasq iw wireless-tools rfkill iproute2 procps caddy"
 if [ "$BRANCH" = "main" ]; then
     PACKAGES="$PACKAGES xorg-dev libasound2-dev mesa-common-dev libgl1-mesa-dev libglu1-mesa-dev libudev-dev"
 fi
@@ -464,8 +457,10 @@ echo
 echo "Useful commands:"
 echo "  sudo systemctl status $SERVICE_NAME.service"
 echo "  sudo systemctl status proton-hotspot.service"
+echo "  sudo systemctl status mjpeg-server.service"
 echo "  sudo journalctl -u proton-hotspot.service -f"
 echo "  sudo journalctl -u $SERVICE_NAME.service -f"
+echo "  sudo journalctl -u mjpeg-server.service -f"
 if [ "$BRANCH" = "main" ]; then
     echo
     echo "Note: the main branch opens a local raylib window and expects Raspberry Pi OS Desktop/X on display :0."
