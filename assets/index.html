@@ -130,7 +130,7 @@
             primary_y: 'march',
             secondary_x: 'strafe',
             secondary_y: 'none',
-            relay_status: 1,
+            relay_status: 0,
             body_height: 0.056,
             body_radius: 0.15,
             step_height: 0.08,
@@ -215,12 +215,8 @@
                 hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
                 hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
                 if (pad.buttons[9].pressed) {
-                    websocket.disconnect();
-                    document.getElementById('stream').src = '';
+                    hexapodPayload.relay_status ^= 1;
                 }
-            } else if (pad.buttons[9].pressed) {
-                connectWebSocket();
-                document.getElementById('stream').src = '/stream.mjpg';
             }
             websocket.send(JSON.stringify(hexapodPayload));
         }
