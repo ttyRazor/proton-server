@@ -210,10 +210,10 @@
                     pad.buttons[2].pressed ? 3 : (
                     pad.buttons[3].pressed ? 4 : hexapodPayload.gait
                 )));
-                hexapodPayload.body_height += 0.005 * (pad.buttons[4].pressed ? 1 : 0);
-                hexapodPayload.body_height -= 0.005 * (pad.buttons[5].pressed ? 1 : 0);
-                hexapodPayload.speed += 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
-                hexapodPayload.speed -= 0.001 * (pad.buttons[7].pressed ? 1 : 0);
+                hexapodPayload.body_height -= 0.005 * (pad.buttons[4].pressed ? 1 : 0);
+                hexapodPayload.body_height += 0.005 * (pad.buttons[5].pressed ? 1 : 0);
+                hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
+                hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
                 if (pad.buttons[9].pressed) {
                     websocket.disconnect();
                     document.getElementById('stream').src = '';
