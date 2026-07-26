@@ -97,7 +97,7 @@
 <body>
     <div class="shell">
         <section class="panel video-wrap">
-            <img src="/stream.mjpg" sizes="auto"></img>
+            <img id="stream" src="/stream.mjpg" sizes="auto"></img>
         </section>
 
         <aside class="panel side">
@@ -194,14 +194,19 @@
             if (websocket && websocket.readyState === WebSocket.OPEN) {
                 hexapodPayload.primary = { x: pad.axes[0], y: pad.axes[1] };
                 hexapodPayload.secondary = { x: pad.axes[2], y: pad.axes[3] };
-                hexapodPayload.speed += 0.01 * (pad.buttons[6].pressed ? 1 : 0); 
-                hexapodPayload.speed -= 0.01 * (pad.buttons[7].pressed ? 1 : 0);
+                hexapodPayload.speed += 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
+                hexapodPayload.speed -= 0.001 * (pad.buttons[7].pressed ? 1 : 0);
                 hexapodPayload.gait = pad.buttons[0].pressed ? 1 : (pad.buttons[1].pressed ? 2 : (pad.buttons[2].pressed ? 3 : (pad.buttons[3].pressed ? 4 : hexapodPayload.gait)));
-                hexapodPayload.body_height += 0.01 * (pad.buttons[4].pressed ? 1 : 0);
-                hexapodPayload.body_height -= 0.01 * (pad.buttons[5].pressed ? 1 : 0);
-                hexapodPayload.relay_status = pad.buttons[8].pressed ? 0 : hexapodPayload.relay_status;
-                hexapodPayload.relay_status = pad.buttons[9].pressed ? 1 : hexapodPayload.relay_status;
-            };
+                hexapodPayload.body_height += 0.001 * (pad.buttons[4].pressed ? 1 : 0);
+                hexapodPayload.body_height -= 0.001 * (pad.buttons[5].pressed ? 1 : 0);
+                if (pad.buttons[8].pressed) {
+                    websocket.disconnect();
+                    document.getElementById('stream').src = '';
+                }
+            } else if (pad.buttons[8].pressed) {
+                connectWebSocket();
+                document.getElementById('stream').src = '/stream.mjpg';
+            }
             websocket.send(JSON.stringify(hexapodPayload));
         }
 
