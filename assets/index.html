@@ -202,7 +202,7 @@
             buttonsStatusEl.textContent = buttonLabels;
 
             if (websocket && websocket.readyState === WebSocket.OPEN) {
-                hexapodPayload.primary = { x: pad.axes[0], y: pad.axes[1] };
+                hexapodPayload.primary = { x: pad.axes[0], y: -pad.axes[1] };
                 hexapodPayload.secondary = { x: pad.axes[2], y: pad.axes[3] };
                 hexapodPayload.gait = 
                     pad.buttons[0].pressed ? 1 : (
@@ -215,12 +215,12 @@
                 hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
                 hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
                 if (pad.buttons[9].pressed) {
-                    hexapodPayload.relay_status = + !hexapodPayload.relay_status;
+                    hexapodPayload.relay_status = 1;
                 } else if (pad.buttons[8].pressed) {
                     hexapodPayload.relay_status = 0;
                 }
+                websocket.send(JSON.stringify(hexapodPayload));
             }
-            websocket.send(JSON.stringify(hexapodPayload));
         }
 
 
