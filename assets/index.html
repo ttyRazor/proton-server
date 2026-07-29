@@ -216,6 +216,8 @@
                 hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
                 if (pad.buttons[9].pressed) {
                     hexapodPayload.relay_status = + !hexapodPayload.relay_status;
+                } else if (pad.buttons[8].pressed) {
+                    hexapodPayload.relay_status = 0;
                 }
             }
             websocket.send(JSON.stringify(hexapodPayload));
