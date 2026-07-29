@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gamepad + Video Stream Template</title>
+    <title>Hexapod Controller</title>
     <link rel="icon" href="/favicons/favicon.ico" sizes="32x32">
     <link rel="apple-touch-icon" href="/favicons/apple-touch-icon.png">
     <link rel="manifest" href="/favicons/site.webmanifest">
@@ -215,7 +215,7 @@
                 hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
                 hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
                 if (pad.buttons[9].pressed) {
-                    hexapodPayload.relay_status ^= 1;
+                    hexapodPayload.relay_status = + !hexapodPayload.relay_status;
                 }
             }
             websocket.send(JSON.stringify(hexapodPayload));
