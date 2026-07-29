@@ -130,7 +130,7 @@
             primary_y: 'march',
             secondary_x: 'strafe',
             secondary_y: 'none',
-            relay_status: 0,
+            relay_status: false,
             body_height: 0.056,
             body_radius: 0.15,
             step_height: 0.08,
@@ -215,9 +215,9 @@
                 hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
                 hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
                 if (pad.buttons[9].pressed) {
-                    hexapodPayload.relay_status = 1;
+                    hexapodPayload.relay_status = true;
                 } else if (pad.buttons[8].pressed) {
-                    hexapodPayload.relay_status = 0;
+                    hexapodPayload.relay_status = false;
                 }
                 websocket.send(JSON.stringify(hexapodPayload));
             }
