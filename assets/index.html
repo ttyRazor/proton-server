@@ -77,18 +77,20 @@
         }
 
         .status {
-            margin-top: 10px;
-            padding: 10px 12px;
+            margin-top: 12px;
+            padding: 12px;
             background: rgba(255, 255, 255, 0.04);
             border-radius: 10px;
-            font-size: 0.9rem;
-            line-height: 1.5;
+            font-size: 0.95rem;
         }
 
-        .status-row {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        .status strong {
+            display: inline-block;
+            min-width: 100px;
+        }
+
+        .status .status-row + .status-row {
+            margin-top: 6px;
         }
 
         .badge {
@@ -310,14 +312,16 @@
             <div class="badge">LIVE</div>
             <span>Video stream + gamepad input</span>
 
+            <div class="status">
+                <div class="status-row"><strong>Connected:</strong> <span id="gamepad-status">No gamepad</span></div>
+                <div class="status-row"><strong>Axes:</strong> <span id="axes-status">-</span></div>
+                <div class="status-row"><strong>Buttons:</strong> <span id="buttons-status">-</span></div>
+                <div class="status-row"><strong>WebSocket:</strong> <span id="ws-status">Connecting…</span></div>
+            </div>
+
             <div class="button-row">
                 <button id="power-toggle" class="power-toggle off" type="button">Power: OFF</button>
                 <button id="shutdown-toggle" class="shutdown-toggle" type="button">Shutdown</button>
-            </div>
-
-            <div class="status">
-                <div class="status-row" id="gamepad-status">Gamepad: No gamepad</div>
-                <div class="status-row" id="ws-status">WS: Connecting…</div>
             </div>
 
             <div class="joystick-panel">
@@ -375,7 +379,6 @@
         const speedValue = document.getElementById('speed-value');
 
         let shutdownRequested = false;
-        let shuttingDown = false;
         const virtualStickState = {
             primary: { x: 0, y: 0 },
             secondary: { x: 0, y: 0 }
@@ -400,6 +403,10 @@
         };
         let websocket = null;
 
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
+        }
+
         function syncPowerUI() {
             const isOn = !!hexapodPayload.relay_status;
             powerToggle.textContent = isOn ? 'Power: ON' : 'Power: OFF';
@@ -423,7 +430,8 @@
             hexapodPayload.secondary = { x: 0, y: 0 };
             virtualStickState.primary = { x: 0, y: 0 };
             virtualStickState.secondary = { x: 0, y: 0 };
-            resetJoysticks();
+            setJoystickState('primary', 0, 0);
+            setJoystickState('secondary', 0, 0);
         }
 
         function updateSliderDisplay() {
@@ -441,15 +449,13 @@
         speedSlider.addEventListener('input', updateSliderDisplay);
 
         powerToggle.addEventListener('click', () => {
-            const requestOn = !hexapodPayload.relay_status;
+            const nextState = !hexapodPayload.relay_status;
 
-            if (!requestOn) {
-                shutdownRequested = true;
-                hexapodPayload.relay_status = false;
+            hexapodPayload.relay_status = nextState;
+            shutdownRequested = false;
+
+            if (!nextState) {
                 zeroMotionState();
-            } else {
-                shutdownRequested = false;
-                hexapodPayload.relay_status = true;
             }
 
             syncPowerUI();
@@ -475,10 +481,14 @@
             if (!knob) return;
 
             const radius = 32;
-            const clampedX = Math.max(-1, Math.min(1, x || 0)) * radius;
-            const clampedY = Math.max(-1, Math.min(1, y || 0)) * radius;
+            const safeX = clamp(x || 0, -1, 1);
+            const safeY = clamp(y || 0, -1, 1);
 
-            knob.style.transform = `translate(-50%, -50%) translate(${clampedX}px, ${clampedY}px)`;
+            const px = safeX * radius;
+            const py = -safeY * radius;
+
+            knob.style.transform = `translate(-50%, -50%) translate(${px}px, ${py}px)`;
+            virtualStickState[stickName] = { x: safeX, y: safeY };
         }
 
         function resetJoysticks() {
@@ -511,12 +521,11 @@
                     y /= length;
                 }
 
-                virtualStickState[stickName] = {
-                    x: Math.max(-1, Math.min(1, x)),
-                    y: Math.max(-1, Math.min(1, y))
-                };
+                const safeX = clamp(x, -1, 1);
+                const safeY = clamp(y, -1, 1);
 
-                setJoystickState(stickName, virtualStickState[stickName].x, virtualStickState[stickName].y);
+                setJoystickState(stickName, safeX, safeY);
+                hexapodPayload[stickName] = { x: safeX, y: safeY };
             };
 
             stickEl.addEventListener('pointerdown', (event) => {
@@ -536,8 +545,8 @@
             const endPointer = (event) => {
                 if (event.pointerId === activePointerId) {
                     activePointerId = null;
-                    virtualStickState[stickName] = { x: 0, y: 0 };
                     setJoystickState(stickName, 0, 0);
+                    hexapodPayload[stickName] = { x: 0, y: 0 };
                 }
             };
 
@@ -619,43 +628,19 @@
             }
 
             const axes = Array.from(pad ? pad.axes || [] : []);
-            const buttons = Array.from(pad ? pad.buttons || [] : []);
 
-            setJoystickState('primary', axes[0] ?? 0, -(axes[1] ?? 0));
-            setJoystickState('secondary', axes[2] ?? 0, -(axes[3] ?? 0));
+            const primaryX = axes[0] ?? 0;
+            const primaryY = -(axes[1] ?? 0);
+            const secondaryX = axes[2] ?? 0;
+            const secondaryY = -(axes[3] ?? 0);
+
+            setJoystickState('primary', primaryX, primaryY);
+            setJoystickState('secondary', secondaryX, secondaryY);
+
+            hexapodPayload.primary = { x: primaryX, y: primaryY };
+            hexapodPayload.secondary = { x: secondaryX, y: secondaryY };
 
             if (websocket && websocket.readyState === WebSocket.OPEN) {
-                if (buttons[9]?.pressed) {
-                    hexapodPayload.relay_status = true;
-                    shuttingDown = false;
-                } else if (buttons[8]?.pressed) {
-                    hexapodPayload.relay_status = false;
-                    zeroMotionState();
-                    shuttingDown = true;
-                }
-
-                if (!shuttingDown) {
-                    hexapodPayload.primary = { x: axes[0] ?? 0, y: -(axes[1] ?? 0) };
-                    hexapodPayload.secondary = { x: axes[2] ?? 0, y: -(axes[3] ?? 0) };
-
-                    hexapodPayload.gait =
-                        buttons[0]?.pressed ? 1 :
-                        buttons[1]?.pressed ? 2 :
-                        buttons[2]?.pressed ? 3 :
-                        buttons[3]?.pressed ? 4 :
-                        hexapodPayload.gait;
-
-                    hexapodPayload.body_height =
-                        Math.min(0.12, Math.max(0.02, hexapodPayload.body_height + 0.005 * (buttons[4]?.pressed ? -1 : 0) + 0.005 * (buttons[5]?.pressed ? 1 : 0)));
-
-                    hexapodPayload.speed =
-                        Math.min(0.40, Math.max(0.05, hexapodPayload.speed + 0.001 * (buttons[6]?.pressed ? -1 : 0) + 0.001 * (buttons[7]?.pressed ? 1 : 0)));
-
-                    heightSlider.value = hexapodPayload.body_height.toFixed(3);
-                    speedSlider.value = hexapodPayload.speed.toFixed(2);
-                    updateSliderDisplay();
-                }
-
                 websocket.send(JSON.stringify(hexapodPayload));
             }
         }
