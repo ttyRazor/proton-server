@@ -118,6 +118,9 @@
             border: 1px solid rgba(255, 255, 255, 0.12);
             box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.04);
             overflow: hidden;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         .joystick::before {
@@ -146,6 +149,7 @@
             box-shadow: 0 0 16px rgba(29, 124, 242, 0.6);
             transform: translate(-50%, -50%);
             transition: transform 0.05s linear;
+            pointer-events: none;
         }
 
         @media (orientation: portrait) {
@@ -240,6 +244,10 @@
         const streamUrl = `http://${webHost}:8889/cam/?controls=false`;
 
         let shuttingDown = false;
+        const virtualStickState = {
+            primary: { x: 0, y: 0 },
+            secondary: { x: 0, y: 0 }
+        };
 
         let hexapodPayload = {
             primary: { x: 0.0, y: 1.0 },
@@ -274,6 +282,76 @@
         function resetJoysticks() {
             setJoystickState('primary', 0, 0);
             setJoystickState('secondary', 0, 0);
+            virtualStickState.primary = { x: 0, y: 0 };
+            virtualStickState.secondary = { x: 0, y: 0 };
+        }
+
+        function updateStickFromPad() {
+            const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+            const pad = pads.find(Boolean);
+
+            if (!pad) return;
+
+            const axes = Array.from(pad.axes || []);
+
+            setJoystickState('primary', axes[0] ?? 0, -(axes[1] ?? 0));
+            setJoystickState('secondary', axes[2] ?? 0, -(axes[3] ?? 0));
+        }
+
+        function bindJoystick(stickName) {
+            const stickEl = document.querySelector(`[data-stick="${stickName}"]`);
+            if (!stickEl) return;
+
+            let activePointerId = null;
+
+            const updateFromPointer = (clientX, clientY) => {
+                const rect = stickEl.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const dx = clientX - cx;
+                const dy = clientY - cy;
+                const maxRadius = rect.width * 0.42;
+
+                let x = dx / maxRadius;
+                let y = dy / maxRadius;
+
+                const length = Math.hypot(x, y);
+                if (length > 1) {
+                    x /= length;
+                    y /= length;
+                }
+
+                virtualStickState[stickName] = {
+                    x: Math.max(-1, Math.min(1, x)),
+                    y: Math.max(-1, Math.min(1, y))
+                };
+
+                setJoystickState(stickName, virtualStickState[stickName].x, -virtualStickState[stickName].y);
+            };
+
+            stickEl.addEventListener('pointerdown', (event) => {
+                activePointerId = event.pointerId;
+                stickEl.setPointerCapture(event.pointerId);
+                updateFromPointer(event.clientX, event.clientY);
+            });
+
+            stickEl.addEventListener('pointermove', (event) => {
+                if (activePointerId !== null && event.pointerId === activePointerId) {
+                    updateFromPointer(event.clientX, event.clientY);
+                }
+            });
+
+            const endPointer = (event) => {
+                if (event.pointerId === activePointerId) {
+                    activePointerId = null;
+                    virtualStickState[stickName] = { x: 0, y: 0 };
+                    setJoystickState(stickName, 0, 0);
+                }
+            };
+
+            stickEl.addEventListener('pointerup', endPointer);
+            stickEl.addEventListener('pointercancel', endPointer);
+            stickEl.addEventListener('pointerleave', endPointer);
         }
 
         function connectStream() {
@@ -304,24 +382,22 @@
             });
 
             websocket.addEventListener('message', (event) => {
-                console.log('Received message:', event.data);
-                websocketStatusEl.textContent = JSON.stringify(JSON.parse(event.data), null, 2);
+                try {
+                    const payload = JSON.parse(event.data);
+                    websocketStatusEl.textContent = JSON.stringify(payload, null, 2);
 
-                const payload = JSON.parse(event.data);
-
-                hexapodPayload.voltage = payload.voltage;
-                hexapodPayload.current = payload.current;
-                hexapodPayload.position = payload.position;
-                hexapodPayload.gait = payload.gait;
-                hexapodPayload.body_height = payload.body_height;
-                hexapodPayload.body_radius = payload.body_radius;
-                hexapodPayload.step_height = payload.step_height;
-                hexapodPayload.speed = payload.speed;
-
-                if (payload.relay_status === true && hexapodPayload.relay_status === false) {
-                    shuttingDown = false;
+                    hexapodPayload.voltage = payload.voltage ?? hexapodPayload.voltage;
+                    hexapodPayload.current = payload.current ?? hexapodPayload.current;
+                    hexapodPayload.position = payload.position ?? hexapodPayload.position;
+                    hexapodPayload.gait = payload.gait ?? hexapodPayload.gait;
+                    hexapodPayload.body_height = payload.body_height ?? hexapodPayload.body_height;
+                    hexapodPayload.body_radius = payload.body_radius ?? hexapodPayload.body_radius;
+                    hexapodPayload.step_height = payload.step_height ?? hexapodPayload.step_height;
+                    hexapodPayload.speed = payload.speed ?? hexapodPayload.speed;
+                    hexapodPayload.relay_status = !!payload.relay_status;
+                } catch (err) {
+                    console.error('Invalid WebSocket payload:', err, event.data);
                 }
-                hexapodPayload.relay_status = payload.relay_status;
             });
         }
 
@@ -333,7 +409,19 @@
                 gamepadStatusEl.textContent = 'No gamepad';
                 axesStatusEl.textContent = '-';
                 buttonsStatusEl.textContent = '-';
-                resetJoysticks();
+
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    hexapodPayload.primary = {
+                        x: virtualStickState.primary.x,
+                        y: virtualStickState.primary.y
+                    };
+                    hexapodPayload.secondary = {
+                        x: virtualStickState.secondary.x,
+                        y: virtualStickState.secondary.y
+                    };
+                    websocket.send(JSON.stringify(hexapodPayload));
+                }
+
                 return;
             }
 
@@ -342,10 +430,7 @@
 
             gamepadStatusEl.textContent = pad.id;
             axesStatusEl.textContent = axes.map((value) => value.toFixed(2)).join(', ');
-            const buttonLabels = buttons.map((button, index) => {
-                return `${index}:${button.pressed ? 1 : 0}`;
-            }).join(' ');
-            buttonsStatusEl.textContent = buttonLabels;
+            buttonsStatusEl.textContent = buttons.map((button, index) => `${index}:${button.pressed ? 1 : 0}`).join(' ');
 
             setJoystickState('primary', axes[0] ?? 0, -(axes[1] ?? 0));
             setJoystickState('secondary', axes[2] ?? 0, -(axes[3] ?? 0));
@@ -382,19 +467,31 @@
             }
         }
 
-        window.addEventListener('gamepadconnected', () => {
-            updateGamepadUI();
-        });
-
-        window.addEventListener('gamepaddisconnected', () => {
-            updateGamepadUI();
-        });
+        window.addEventListener('gamepadconnected', updateGamepadUI);
+        window.addEventListener('gamepaddisconnected', updateGamepadUI);
 
         function loop() {
+            const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+            const pad = pads.find(Boolean);
+
+            if (!pad && websocket && websocket.readyState === WebSocket.OPEN) {
+                hexapodPayload.primary = {
+                    x: virtualStickState.primary.x,
+                    y: virtualStickState.primary.y
+                };
+                hexapodPayload.secondary = {
+                    x: virtualStickState.secondary.x,
+                    y: virtualStickState.secondary.y
+                };
+                websocket.send(JSON.stringify(hexapodPayload));
+            }
+
             updateGamepadUI();
             requestAnimationFrame(loop);
         }
 
+        bindJoystick('primary');
+        bindJoystick('secondary');
         resetJoysticks();
         connectWebSocket();
         connectStream();
