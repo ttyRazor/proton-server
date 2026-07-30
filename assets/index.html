@@ -102,6 +102,52 @@
             font-size: 0.75rem;
         }
 
+        .joystick-panel {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(110px, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .joystick {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.04);
+            overflow: hidden;
+        }
+
+        .joystick::before {
+            content: "";
+            position: absolute;
+            inset: 10px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .joystick::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, transparent 56%, rgba(255,255,255,0.05) 57%, transparent 58%);
+        }
+
+        .joystick .stick-knob {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #7cc3ff, #1d7cf2);
+            box-shadow: 0 0 16px rgba(29, 124, 242, 0.6);
+            transform: translate(-50%, -50%);
+            transition: transform 0.05s linear;
+        }
+
         @media (orientation: portrait) {
             body {
                 padding: 12px;
@@ -171,6 +217,15 @@
                 <div class="status-row"><strong>Buttons:</strong> <span id="buttons-status">-</span></div>
                 <div class="status-row"><strong>WebSocket:</strong> <span id="ws-status">Connecting…</span></div>
             </div>
+
+            <div class="joystick-panel">
+                <div class="joystick" data-stick="primary">
+                    <div class="stick-knob"></div>
+                </div>
+                <div class="joystick" data-stick="secondary">
+                    <div class="stick-knob"></div>
+                </div>
+            </div>
         </aside>
     </div>
 
@@ -183,7 +238,7 @@
         const websocketStatusEl = document.getElementById('ws-status');
         const websocketUrl = `ws://${webHost}:8080/control/ws`;
         const streamUrl = `http://${webHost}:8889/cam/?controls=false`;
-        
+
         let shuttingDown = false;
 
         let hexapodPayload = {
@@ -204,6 +259,22 @@
             current: 0.0
         };
         let websocket = null;
+
+        function setJoystickState(stickName, x, y) {
+            const knob = document.querySelector(`[data-stick="${stickName}"] .stick-knob`);
+            if (!knob) return;
+
+            const radius = 32;
+            const clampedX = Math.max(-1, Math.min(1, x || 0)) * radius;
+            const clampedY = Math.max(-1, Math.min(1, y || 0)) * radius;
+
+            knob.style.transform = `translate(-50%, -50%) translate(${clampedX}px, ${clampedY}px)`;
+        }
+
+        function resetJoysticks() {
+            setJoystickState('primary', 0, 0);
+            setJoystickState('secondary', 0, 0);
+        }
 
         function connectStream() {
             streamEl.src = streamUrl;
@@ -231,11 +302,12 @@
             websocket.addEventListener('error', () => {
                 websocketStatusEl.textContent = 'Error';
             });
+
             websocket.addEventListener('message', (event) => {
                 console.log('Received message:', event.data);
-                websocketStatusEl.textContent = JSON.stringify(JSON.parse(event.data), null, 2 );
+                websocketStatusEl.textContent = JSON.stringify(JSON.parse(event.data), null, 2);
 
-                payload = JSON.parse(event.data);
+                const payload = JSON.parse(event.data);
 
                 hexapodPayload.voltage = payload.voltage;
                 hexapodPayload.current = payload.current;
@@ -245,11 +317,11 @@
                 hexapodPayload.body_radius = payload.body_radius;
                 hexapodPayload.step_height = payload.step_height;
                 hexapodPayload.speed = payload.speed;
-                
+
                 if (payload.relay_status === true && hexapodPayload.relay_status === false) {
                     shuttingDown = false;
-                } 
-                hexapodPayload.relay_status = payload.relay_status;  
+                }
+                hexapodPayload.relay_status = payload.relay_status;
             });
         }
 
@@ -261,45 +333,54 @@
                 gamepadStatusEl.textContent = 'No gamepad';
                 axesStatusEl.textContent = '-';
                 buttonsStatusEl.textContent = '-';
+                resetJoysticks();
                 return;
             }
 
+            const axes = Array.from(pad.axes || []);
+            const buttons = Array.from(pad.buttons || []);
+
             gamepadStatusEl.textContent = pad.id;
-            axesStatusEl.textContent = pad.axes.map((value) => value.toFixed(2)).join(', ');
-            const buttonLabels = pad.buttons.map((button, index) => {
+            axesStatusEl.textContent = axes.map((value) => value.toFixed(2)).join(', ');
+            const buttonLabels = buttons.map((button, index) => {
                 return `${index}:${button.pressed ? 1 : 0}`;
             }).join(' ');
             buttonsStatusEl.textContent = buttonLabels;
 
+            setJoystickState('primary', axes[0] ?? 0, -(axes[1] ?? 0));
+            setJoystickState('secondary', axes[2] ?? 0, -(axes[3] ?? 0));
+
             if (websocket && websocket.readyState === WebSocket.OPEN) {
-                if (pad.buttons[9].pressed) {
+                if (buttons[9]?.pressed) {
                     hexapodPayload.relay_status = true;
                     shuttingDown = false;
-                } else if (pad.buttons[8].pressed) {
+                } else if (buttons[8]?.pressed) {
                     hexapodPayload.relay_status = false;
                     hexapodPayload.primary = { x: 0.0, y: 0.0 };
                     hexapodPayload.secondary = { x: 0.0, y: 0.0 };
                     shuttingDown = true;
                 }
+
                 if (!shuttingDown) {
-                    hexapodPayload.primary = { x: pad.axes[0], y: -pad.axes[1] };
-                    hexapodPayload.secondary = { x: pad.axes[2], y: pad.axes[3] };
-                    hexapodPayload.gait = 
-                        pad.buttons[0].pressed ? 1 : (
-                        pad.buttons[1].pressed ? 2 : (
-                        pad.buttons[2].pressed ? 3 : (
-                        pad.buttons[3].pressed ? 4 : hexapodPayload.gait
+                    hexapodPayload.primary = { x: axes[0] ?? 0, y: -(axes[1] ?? 0) };
+                    hexapodPayload.secondary = { x: axes[2] ?? 0, y: -(axes[3] ?? 0) };
+
+                    hexapodPayload.gait =
+                        buttons[0]?.pressed ? 1 : (
+                        buttons[1]?.pressed ? 2 : (
+                        buttons[2]?.pressed ? 3 : (
+                        buttons[3]?.pressed ? 4 : hexapodPayload.gait
                     )));
-                    hexapodPayload.body_height -= 0.005 * (pad.buttons[4].pressed ? 1 : 0);
-                    hexapodPayload.body_height += 0.005 * (pad.buttons[5].pressed ? 1 : 0);
-                    hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
-                    hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
+
+                    hexapodPayload.body_height -= 0.005 * (buttons[4]?.pressed ? 1 : 0);
+                    hexapodPayload.body_height += 0.005 * (buttons[5]?.pressed ? 1 : 0);
+                    hexapodPayload.speed -= 0.001 * (buttons[6]?.pressed ? 1 : 0);
+                    hexapodPayload.speed += 0.001 * (buttons[7]?.pressed ? 1 : 0);
                 }
-                
+
                 websocket.send(JSON.stringify(hexapodPayload));
             }
         }
-
 
         window.addEventListener('gamepadconnected', () => {
             updateGamepadUI();
@@ -314,6 +395,7 @@
             requestAnimationFrame(loop);
         }
 
+        resetJoysticks();
         connectWebSocket();
         connectStream();
         loop();
