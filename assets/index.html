@@ -96,7 +96,7 @@
 <body>
     <div class="shell">
         <section class="panel video-wrap">
-            <iframe src=":8889/mystream" controls="false" scrolling="no"></iframe>
+            <iframe id="mtxplayer" src="http://localhost:8889/cam/?controls=false" scrolling="no"></iframe>
         </section>
 
         <aside class="panel side">
@@ -114,13 +114,14 @@
     </div>
 
     <script>
-        const streamEl = document.getElementById('stream');
+        const streamEl = document.getElementById('mtxplayer');
+        const webHost = window.location.hostname;
         const gamepadStatusEl = document.getElementById('gamepad-status');
         const axesStatusEl = document.getElementById('axes-status');
         const buttonsStatusEl = document.getElementById('buttons-status');
         const websocketStatusEl = document.getElementById('ws-status');
-        const websocketHost = 'hexapod0.local.';
-        const websocketUrl = `ws://${websocketHost}:8080/control/ws`;
+        const websocketUrl = `ws://${webHost}:8080/control/ws`;
+        const streamUrl = `http://${webHost}:8889/cam/?controls=false`;
         
         let shuttingDown = false;
 
@@ -142,6 +143,10 @@
             current: 0.0
         };
         let websocket = null;
+
+        function connectStream() {
+            streamEl.src = streamUrl;
+        }
 
         function connectWebSocket() {
             websocketStatusEl.textContent = 'Connecting…';
@@ -249,6 +254,7 @@
         }
 
         connectWebSocket();
+        connectStream();
         loop();
     </script>
 </body>
