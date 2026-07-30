@@ -77,20 +77,18 @@
         }
 
         .status {
-            margin-top: 12px;
-            padding: 12px;
+            margin-top: 10px;
+            padding: 10px 12px;
             background: rgba(255, 255, 255, 0.04);
             border-radius: 10px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
+            line-height: 1.5;
         }
 
-        .status strong {
-            display: inline-block;
-            min-width: 100px;
-        }
-
-        .status .status-row + .status-row {
-            margin-top: 6px;
+        .status-row {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .badge {
@@ -102,27 +100,46 @@
             font-size: 0.75rem;
         }
 
-        .power-toggle {
+        .button-row {
+            display: flex;
+            gap: 10px;
             margin-top: 12px;
-            width: 100%;
+        }
+
+        .power-toggle,
+        .shutdown-toggle {
+            flex: 1;
             border: 0;
             border-radius: 10px;
             padding: 12px 16px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-weight: 700;
             letter-spacing: 0.04em;
             color: #eef6ff;
-            background: linear-gradient(135deg, #f45d5d, #b22222);
             cursor: pointer;
             transition: all 0.2s ease;
         }
 
-        .power-toggle.on {
+        .power-toggle {
             background: linear-gradient(135deg, #3ddc97, #168a5e);
         }
 
-        .power-toggle:active {
+        .power-toggle.off {
+            background: linear-gradient(135deg, #f45d5d, #b22222);
+        }
+
+        .shutdown-toggle {
+            background: linear-gradient(135deg, #f0ad4e, #a56500);
+        }
+
+        .power-toggle:active,
+        .shutdown-toggle:active {
             transform: scale(0.99);
+        }
+
+        .shutdown-toggle:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         .joystick.disabled,
@@ -206,13 +223,14 @@
             <div class="badge">LIVE</div>
             <span>Video stream + gamepad input</span>
 
-            <button id="power-toggle" class="power-toggle" type="button">Power: OFF</button>
+            <div class="button-row">
+                <button id="power-toggle" class="power-toggle off" type="button">Power: OFF</button>
+                <button id="shutdown-toggle" class="shutdown-toggle" type="button">Shutdown</button>
+            </div>
 
             <div class="status">
-                <div class="status-row"><strong>Connected:</strong> <span id="gamepad-status">No gamepad</span></div>
-                <div class="status-row"><strong>Axes:</strong> <span id="axes-status">-</span></div>
-                <div class="status-row"><strong>Buttons:</strong> <span id="buttons-status">-</span></div>
-                <div class="status-row"><strong>WebSocket:</strong> <span id="ws-status">Connecting…</span></div>
+                <div class="status-row" id="gamepad-status">Gamepad: No gamepad</div>
+                <div class="status-row" id="ws-status">WS: Connecting…</div>
             </div>
 
             <div class="joystick-panel">
@@ -256,9 +274,8 @@
         const streamEl = document.getElementById('mtxplayer');
         const webHost = window.location.hostname;
         const powerToggle = document.getElementById('power-toggle');
+        const shutdownToggle = document.getElementById('shutdown-toggle');
         const gamepadStatusEl = document.getElementById('gamepad-status');
-        const axesStatusEl = document.getElementById('axes-status');
-        const buttonsStatusEl = document.getElementById('buttons-status');
         const websocketStatusEl = document.getElementById('ws-status');
         const websocketUrl = `ws://${webHost}:8080/control/ws`;
         const streamUrl = `http://${webHost}:8889/cam/?controls=false`;
@@ -270,6 +287,7 @@
         const radiusValue = document.getElementById('radius-value');
         const speedValue = document.getElementById('speed-value');
 
+        let shutdownRequested = false;
         let shuttingDown = false;
         const virtualStickState = {
             primary: { x: 0, y: 0 },
@@ -297,11 +315,11 @@
 
         function syncPowerUI() {
             const isOn = !!hexapodPayload.relay_status;
-
             powerToggle.textContent = isOn ? 'Power: ON' : 'Power: OFF';
-            powerToggle.classList.toggle('on', isOn);
+            powerToggle.classList.toggle('off', !isOn);
+            shutdownToggle.disabled = !isOn || shutdownRequested;
+            const controlsDisabled = !isOn || shutdownRequested;
 
-            const controlsDisabled = !isOn;
             document.querySelectorAll('.joystick').forEach((el) => {
                 el.classList.toggle('disabled', controlsDisabled);
                 el.style.pointerEvents = controlsDisabled ? 'none' : '';
@@ -335,12 +353,25 @@
         speedSlider.addEventListener('input', updateSliderDisplay);
 
         powerToggle.addEventListener('click', () => {
-            hexapodPayload.relay_status = !hexapodPayload.relay_status;
+            const next = !hexapodPayload.relay_status;
+            shutdownRequested = false;
+            hexapodPayload.relay_status = next;
 
-            if (!hexapodPayload.relay_status) {
+            if (!next) {
                 zeroMotionState();
             }
 
+            syncPowerUI();
+
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify(hexapodPayload));
+            }
+        });
+
+        shutdownToggle.addEventListener('click', () => {
+            shutdownRequested = true;
+            hexapodPayload.relay_status = false;
+            zeroMotionState();
             syncPowerUI();
 
             if (websocket && websocket.readyState === WebSocket.OPEN) {
@@ -371,7 +402,7 @@
             let activePointerId = null;
 
             const updateFromPointer = (clientX, clientY) => {
-                if (!hexapodPayload.relay_status) return;
+                if (!hexapodPayload.relay_status || shutdownRequested) return;
 
                 const rect = stickEl.getBoundingClientRect();
                 const cx = rect.left + rect.width / 2;
@@ -398,14 +429,14 @@
             };
 
             stickEl.addEventListener('pointerdown', (event) => {
-                if (!hexapodPayload.relay_status) return;
+                if (!hexapodPayload.relay_status || shutdownRequested) return;
                 activePointerId = event.pointerId;
                 stickEl.setPointerCapture(event.pointerId);
                 updateFromPointer(event.clientX, event.clientY);
             });
 
             stickEl.addEventListener('pointermove', (event) => {
-                if (!hexapodPayload.relay_status) return;
+                if (!hexapodPayload.relay_status || shutdownRequested) return;
                 if (activePointerId !== null && event.pointerId === activePointerId) {
                     updateFromPointer(event.clientX, event.clientY);
                 }
@@ -429,36 +460,39 @@
         }
 
         function connectWebSocket() {
-            websocketStatusEl.textContent = 'Connecting…';
+            websocketStatusEl.textContent = 'WS: Connecting…';
 
             try {
                 websocket = new WebSocket(websocketUrl);
             } catch (err) {
                 console.error('Unable to create WebSocket:', err);
-                websocketStatusEl.textContent = 'Error';
+                websocketStatusEl.textContent = 'WS: Error';
                 return;
             }
 
             websocket.addEventListener('open', () => {
-                websocketStatusEl.textContent = 'Connected';
+                websocketStatusEl.textContent = 'WS: Connected';
                 websocket.send(JSON.stringify(hexapodPayload));
             });
 
             websocket.addEventListener('close', () => {
-                websocketStatusEl.textContent = 'Disconnected';
+                websocketStatusEl.textContent = 'WS: Disconnected';
             });
 
             websocket.addEventListener('error', () => {
-                websocketStatusEl.textContent = 'Error';
+                websocketStatusEl.textContent = 'WS: Error';
             });
 
             websocket.addEventListener('message', (event) => {
                 try {
                     const payload = JSON.parse(event.data);
-                    websocketStatusEl.textContent = JSON.stringify(payload, null, 2);
 
                     if (typeof payload.relay_status === 'boolean') {
                         hexapodPayload.relay_status = payload.relay_status;
+
+                        if (!payload.relay_status) {
+                            shutdownRequested = false;
+                        }
                     }
 
                     hexapodPayload.voltage = payload.voltage ?? hexapodPayload.voltage;
@@ -482,36 +516,20 @@
             const pad = pads.find(Boolean);
 
             if (!pad) {
-                gamepadStatusEl.textContent = 'No gamepad';
-                axesStatusEl.textContent = '-';
-                buttonsStatusEl.textContent = '-';
-
-                if (hexapodPayload.relay_status && websocket && websocket.readyState === WebSocket.OPEN) {
-                    hexapodPayload.primary = {
-                        x: virtualStickState.primary.x,
-                        y: virtualStickState.primary.y
-                    };
-                    hexapodPayload.secondary = {
-                        x: virtualStickState.secondary.x,
-                        y: virtualStickState.secondary.y
-                    };
-                    websocket.send(JSON.stringify(hexapodPayload));
+                gamepadStatusEl.textContent = 'Gamepad: No gamepad';
+                if (!hexapodPayload.relay_status || shutdownRequested) {
+                    return;
                 }
+            } else {
+                gamepadStatusEl.textContent = `Gamepad: ${pad.id}`;
+            }
 
+            if (!hexapodPayload.relay_status || shutdownRequested) {
                 return;
             }
 
-            const axes = Array.from(pad.axes || []);
-            const buttons = Array.from(pad.buttons || []);
-
-            gamepadStatusEl.textContent = pad.id;
-            axesStatusEl.textContent = axes.map((value) => value.toFixed(2)).join(', ');
-            buttonsStatusEl.textContent = buttons.map((button, index) => `${index}:${button.pressed ? 1 : 0}`).join(' ');
-
-            if (!hexapodPayload.relay_status) {
-                zeroMotionState();
-                return;
-            }
+            const axes = Array.from(pad ? pad.axes || [] : []);
+            const buttons = Array.from(pad ? pad.buttons || [] : []);
 
             setJoystickState('primary', axes[0] ?? 0, -(axes[1] ?? 0));
             setJoystickState('secondary', axes[2] ?? 0, -(axes[3] ?? 0));
@@ -543,7 +561,6 @@
                     hexapodPayload.speed += 0.001 * (buttons[7]?.pressed ? 1 : 0);
                 }
 
-                syncPowerUI();
                 websocket.send(JSON.stringify(hexapodPayload));
             }
         }
@@ -555,7 +572,7 @@
             const pads = navigator.getGamepads ? navigator.getGamepads() : [];
             const pad = pads.find(Boolean);
 
-            if (!pad && websocket && websocket.readyState === WebSocket.OPEN && hexapodPayload.relay_status) {
+            if (!pad && websocket && websocket.readyState === WebSocket.OPEN && hexapodPayload.relay_status && !shutdownRequested) {
                 hexapodPayload.primary = { x: virtualStickState.primary.x, y: virtualStickState.primary.y };
                 hexapodPayload.secondary = { x: virtualStickState.secondary.x, y: virtualStickState.secondary.y };
                 websocket.send(JSON.stringify(hexapodPayload));
