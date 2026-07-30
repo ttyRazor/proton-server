@@ -186,7 +186,7 @@
         function updateGamepadUI() {
             const pads = navigator.getGamepads ? navigator.getGamepads() : [];
             const pad = pads.find(Boolean);
-            bool shuttingDown = false;
+            let shuttingDown = false;
 
             if (!pad) {
                 gamepadStatusEl.textContent = 'No gamepad';
