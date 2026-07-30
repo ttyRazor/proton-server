@@ -44,7 +44,6 @@
 
         video {
             width: 100%;
-            aspect-ratio: 16 / 9;
             border-radius: 12px;
             background: #000;
             object-fit: cover;
@@ -97,7 +96,7 @@
 <body>
     <div class="shell">
         <section class="panel video-wrap">
-            <img id="stream" src="/stream.mjpg" sizes="auto"></img>
+            <iframe src=":8889/mystream" controls="false" scrolling="no"></iframe>
         </section>
 
         <aside class="panel side">
@@ -180,8 +179,11 @@
                 hexapodPayload.body_radius = payload.body_radius;
                 hexapodPayload.step_height = payload.step_height;
                 hexapodPayload.speed = payload.speed;
-                hexapodPayload.relay_status = payload.relay_status;
-
+                
+                if (payload.relay_status === true && hexapodPayload.relay_status === false) {
+                    shuttingDown = false;
+                } 
+                hexapodPayload.relay_status = payload.relay_status;  
             });
         }
 
@@ -209,6 +211,8 @@
                     shuttingDown = false;
                 } else if (pad.buttons[8].pressed) {
                     hexapodPayload.relay_status = false;
+                    hexapodPayload.primary = { x: 0.0, y: 0.0 };
+                    hexapodPayload.secondary = { x: 0.0, y: 0.0 };
                     shuttingDown = true;
                 }
                 if (!shuttingDown) {
