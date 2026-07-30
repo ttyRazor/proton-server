@@ -122,6 +122,8 @@
         const websocketStatusEl = document.getElementById('ws-status');
         const websocketHost = 'hexapod0.local.';
         const websocketUrl = `ws://${websocketHost}:8080/control/ws`;
+        
+        let shuttingDown = false;
 
         let hexapodPayload = {
             primary: { x: 0.0, y: 1.0 },
@@ -186,7 +188,6 @@
         function updateGamepadUI() {
             const pads = navigator.getGamepads ? navigator.getGamepads() : [];
             const pad = pads.find(Boolean);
-            let shuttingDown = false;
 
             if (!pad) {
                 gamepadStatusEl.textContent = 'No gamepad';
