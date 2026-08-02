@@ -5,9 +5,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hexapod Controller</title>
-    <link rel="icon" href="/favicons/favicon.ico" sizes="32x32">
+    <!-- <link rel="icon" href="/favicons/favicon.ico" sizes="32x32">
     <link rel="apple-touch-icon" href="/favicons/apple-touch-icon.png">
-    <link rel="manifest" href="/favicons/site.webmanifest">
+    <link rel="manifest" href="/favicons/site.webmanifest"> -->
     <style>
         :root {
             color-scheme: dark;
@@ -304,7 +304,8 @@
 <body>
     <div class="shell">
         <section class="panel video-wrap">
-            <iframe id="mtxplayer" src="http://localhost:8889/cam/?controls=false" scrolling="no"></iframe>
+            <!-- <iframe id="mtxplayer" src="http://hexapod0.ttyrazor.net:8889/cam/?controls=false" scrolling="no"></iframe> -->
+            <img id="stream" src="http://hexapod0.ttyrazor.net:8089/stream.mjpg"></img>
         </section>
 
         <aside class="panel controls">
@@ -333,7 +334,7 @@
                 </div>
             </div>
 
-            <div class="slider-panel">
+            <!-- <div class="slider-panel">
                 <div class="slider-column">
                     <div class="slider-label">Height</div>
                     <div class="vertical-slider-wrap">
@@ -357,13 +358,14 @@
                     </div>
                     <div class="slider-value" id="speed-value">0.15</div>
                 </div>
-            </div>
+            </div> -->
         </aside>
     </div>
 
     <script>
         const streamEl = document.getElementById('mtxplayer');
-        const webHost = window.location.hostname;
+        // const webHost = window.location.hostname;
+        const webHost = 'hexapod0.ttyrazor.net';
         const powerToggle = document.getElementById('power-toggle');
         const shutdownToggle = document.getElementById('shutdown-toggle');
         const gamepadStatusEl = document.getElementById('gamepad-status');
@@ -434,19 +436,19 @@
             setJoystickState('secondary', 0, 0);
         }
 
-        function updateSliderDisplay() {
-            heightValue.textContent = Number(heightSlider.value).toFixed(3);
-            radiusValue.textContent = Number(radiusSlider.value).toFixed(2);
-            speedValue.textContent = Number(speedSlider.value).toFixed(2);
+        // function updateSliderDisplay() {
+        //     // heightValue.textContent = Number(heightSlider.value).toFixed(3);
+        //     // radiusValue.textContent = Number(radiusSlider.value).toFixed(2);
+        //     // speedValue.textContent = Number(speedSlider.value).toFixed(2);
 
-            hexapodPayload.body_height = Number(heightSlider.value);
-            hexapodPayload.body_radius = Number(radiusSlider.value);
-            hexapodPayload.speed = Number(speedSlider.value);
-        }
+        //     hexapodPayload.body_height = Number(heightSlider.value);
+        //     hexapodPayload.body_radius = Number(radiusSlider.value);
+        //     hexapodPayload.speed = Number(speedSlider.value);
+        // }
 
-        heightSlider.addEventListener('input', updateSliderDisplay);
-        radiusSlider.addEventListener('input', updateSliderDisplay);
-        speedSlider.addEventListener('input', updateSliderDisplay);
+        // heightSlider.addEventListener('input', updateSliderDisplay);
+        // radiusSlider.addEventListener('input', updateSliderDisplay);
+        // speedSlider.addEventListener('input', updateSliderDisplay);
 
         powerToggle.addEventListener('click', () => {
             const nextState = !hexapodPayload.relay_status;
@@ -555,9 +557,9 @@
             stickEl.addEventListener('pointerleave', endPointer);
         }
 
-        function connectStream() {
-            streamEl.src = streamUrl;
-        }
+        // function connectStream() {
+        //     streamEl.src = streamUrl;
+        // }
 
         function connectWebSocket() {
             websocketStatusEl.textContent = 'WS: Connecting…';
@@ -586,7 +588,6 @@
             websocket.addEventListener('message', (event) => {
                 try {
                     const payload = JSON.parse(event.data);
-
                     if (typeof payload.relay_status === 'boolean') {
                         hexapodPayload.relay_status = payload.relay_status;
                         if (!payload.relay_status) {
@@ -655,11 +656,11 @@
 
         bindJoystick('primary');
         bindJoystick('secondary');
-        updateSliderDisplay();
+        // updateSliderDisplay();
         syncPowerUI();
         resetJoysticks();
         connectWebSocket();
-        connectStream();
+        // connectStream();
         loop();
     </script>
 </body>
