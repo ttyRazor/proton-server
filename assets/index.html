@@ -28,7 +28,7 @@
             display: grid;
             grid-template-columns: 2fr 1fr;
             gap: 16px;
-            align-items: start;
+            align-items: center;
         }
 
         .panel {
@@ -91,6 +91,27 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        @media (orientation: portrait) {
+            body {
+                place-items: start center;
+                padding-top: 16px;
+            }
+
+            .shell {
+                align-items: start;
+            }
+        }
+
+        @media (orientation: landscape) {
+            body {
+                place-items: center;
+            }
+
+            .shell {
+                align-items: center;
+            }
+        }
     </style>
 </head>
 
@@ -146,30 +167,29 @@
         let websocket = null;
 
         function connectWebSocket() {
-            websocketStatusEl.textContent = 'Connecting…';
+            websocketStatusEl.textContent = '🕥';
 
             try {
                 websocket = new WebSocket(websocketUrl);
             } catch (err) {
                 console.error('Unable to create WebSocket:', err);
-                websocketStatusEl.textContent = 'Error';
+                websocketStatusEl.textContent = '⚠️';
                 return;
             }
 
             websocket.addEventListener('open', () => {
-                websocketStatusEl.textContent = 'Connected';
+                websocketStatusEl.textContent = '✅';
             });
 
             websocket.addEventListener('close', () => {
-                websocketStatusEl.textContent = 'Disconnected';
+                websocketStatusEl.textContent = '🛑';
             });
 
             websocket.addEventListener('error', () => {
-                websocketStatusEl.textContent = 'Error';
+                websocketStatusEl.textContent = '⚠️';
             });
             websocket.addEventListener('message', (event) => {
                 console.log('Received message:', event.data);
-                websocketStatusEl.textContent = JSON.stringify(JSON.parse(event.data), null, 2 );
 
                 payload = JSON.parse(event.data);
 
@@ -181,8 +201,9 @@
                 hexapodPayload.body_radius = payload.body_radius;
                 hexapodPayload.step_height = payload.step_height;
                 hexapodPayload.speed = payload.speed;
-                        hexapodPayload.relay_status = payload.relay_status;
+                hexapodPayload.relay_status = payload.relay_status;
 
+                console.log('Updated hexapodPayload:', hexapodPayload);
             });
         }
 
