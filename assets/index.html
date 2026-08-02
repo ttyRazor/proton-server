@@ -40,15 +40,21 @@
 
         .video-wrap {
             padding: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            max-height: calc(100vh - 32px);
+            overflow: hidden;
         }
 
-        video {
+        img#stream {
+            display: block;
             width: 100%;
-            aspect-ratio: 16 / 9;
+            height: auto;
+            max-height: calc(100vh - 80px);
             border-radius: 12px;
             background: #000;
-            object-fit: cover;
-            display: block;
+            object-fit: contain;
         }
 
         .side {
