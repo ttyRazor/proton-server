@@ -39,6 +39,7 @@
         }
 
         .video-wrap {
+            position: relative;
             padding: 12px;
             display: flex;
             align-items: center;
@@ -79,7 +80,7 @@
             min-width: 100px;
         }
 
-        .status .status-row+.status-row {
+        .status .status-row + .status-row {
             margin-top: 6px;
         }
 
@@ -129,15 +130,10 @@
         </section>
 
         <aside class="panel side">
-            <h1>Gamepad Template</h1>
-            <div class="badge">LIVE</div>
-            <span>Video stream + gamepad input</span>
-
+            <h1>Hexapod Control</h1>
             <div class="status">
-                <div class="status-row"><strong>Connected:</strong> <span id="gamepad-status">No gamepad</span></div>
-                <div class="status-row"><strong>Axes:</strong> <span id="axes-status">-</span></div>
-                <div class="status-row"><strong>Buttons:</strong> <span id="buttons-status">-</span></div>
-                <div class="status-row"><strong>WebSocket:</strong> <span id="ws-status">Connecting…</span></div>
+                <div class="status-row"><strong>Controller:</strong> <span id="gamepad-status">No gamepad</span></div>
+                <div class="status-row"><strong>WebSocket:</strong> <span id="ws-status">+ to start</span></div>
             </div>
         </aside>
     </div>
@@ -148,8 +144,11 @@
         const axesStatusEl = document.getElementById('axes-status');
         const buttonsStatusEl = document.getElementById('buttons-status');
         const websocketStatusEl = document.getElementById('ws-status');
-        const websocketHost = 'hexapod0.local.';
-        const websocketUrl = `ws://${websocketHost}:8080/control/ws`;
+        const hexapodHost = document.location.hostname;
+        const protonServerPort = 8080;
+        const websocketUrl = `ws://${hexapodHost}:${protonServerPort}/control/ws`;
+        const shutdownUrl = `http://${hexapodHost}:${protonServerPort}/system/shutdown`;
+        const logsUrl = `http://${hexapodHost}:${protonServerPort}/logs`;
         
         let shuttingDown = false;
 
@@ -234,9 +233,18 @@
 
 
             if (pad.buttons[9].pressed) {
-                    connectWebSocket();
+                    if (websocket && websocket.readyState === WebSocket.OPEN) {
+                        websocket.close();
+                    } else {
+                        connectWebSocket();
+                    }
                 } else if (pad.buttons[8].pressed) {
-                    websocket.close();
+                    // await fetch(websocketHost, {
+                    //     method: "POST",
+                    //     body: "/system/shutdown",
+                    //     headers: {
+                    //         "Content-Type": "text/plain"
+                    //     });
                 }
 
             if (websocket && websocket.readyState === WebSocket.OPEN) {
