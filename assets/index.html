@@ -140,8 +140,6 @@
     <script>
         const streamEl = document.getElementById('stream');
         const gamepadStatusEl = document.getElementById('gamepad-status');
-        const axesStatusEl = document.getElementById('axes-status');
-        const buttonsStatusEl = document.getElementById('buttons-status');
         const websocketStatusEl = document.getElementById('ws-status');
         const hexapodHost = document.location.hostname;
         const protonServerPort = 8080;
@@ -218,18 +216,14 @@
 
             if (!pad) {
                 gamepadStatusEl.textContent = 'No gamepad';
-                axesStatusEl.textContent = '-';
-                buttonsStatusEl.textContent = '-';
                 return;
             }
 
             gamepadStatusEl.textContent = pad.id;
-            axesStatusEl.textContent = pad.axes.map((value) => value.toFixed(2)).join(', ');
             const buttonLabels = pad.buttons.map((button, index) => {
                 return `${index}:${button.pressed ? 1 : 0}`;
             }).join(' ');
-            buttonsStatusEl.textContent = buttonLabels;
-
+           
 
             if (pad.buttons[9].pressed) {
                     if (websocket && websocket.readyState === WebSocket.OPEN) {
