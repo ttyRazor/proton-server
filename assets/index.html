@@ -232,15 +232,15 @@
             }).join(' ');
             buttonsStatusEl.textContent = buttonLabels;
 
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-                if (pad.buttons[9].pressed) {
-                    hexapodPayload.relay_status = true;
-                    shuttingDown = false;
+
+            if (pad.buttons[9].pressed) {
+                    connectWebSocket();
                 } else if (pad.buttons[8].pressed) {
-                    hexapodPayload.relay_status = false;
-                    shuttingDown = true;
+                    websocket.close();
                 }
-                if (!shuttingDown) {
+
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                
                     hexapodPayload.primary = { x: pad.axes[0], y: -pad.axes[1] };
                     hexapodPayload.secondary = { x: pad.axes[2], y: pad.axes[3] };
                     hexapodPayload.gait = 
@@ -253,7 +253,6 @@
                     hexapodPayload.body_height += 0.005 * (pad.buttons[5].pressed ? 1 : 0);
                     hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
                     hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
-                }
                 
                 websocket.send(JSON.stringify(hexapodPayload));
             }
@@ -273,7 +272,7 @@
             requestAnimationFrame(loop);
         }
 
-        connectWebSocket();
+        // connectWebSocket();
         loop();
     </script>
 </body>
