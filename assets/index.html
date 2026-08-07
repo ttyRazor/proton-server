@@ -252,7 +252,7 @@
                         // websocket.close();
                         hexapodPayload.relay_status = !hexapodPayload.relay_status;
                     }
-                    
+
                 websocket.send(JSON.stringify(hexapodPayload));
             }
             buttonStates = pad.buttons.map(button => button.pressed);
@@ -272,7 +272,7 @@
             requestAnimationFrame(loop);
         }
 
-        // connectWebSocket();
+        connectWebSocket();
         loop();
     </script>
 </body>
