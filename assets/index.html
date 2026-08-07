@@ -250,8 +250,13 @@
                 }
                 if (buttonStates[9] && !pad.buttons[9].pressed) {
                     // websocket.close();
-                    hexapodPayload.relay_status = !hexapodPayload.relay_status;
-                    hexapodPayload.positon = 0;
+                    if(hexapodPayload.relay_status) {
+                        hexapodPayload.relay_status = false;
+                        hexapodPayload.positon = 0;
+                    } else {
+                        hexapodPayload.relay_status = true;
+                        hexapodPayload.positon = 1;
+                    }
                 }
 
                 websocket.send(JSON.stringify(hexapodPayload));
