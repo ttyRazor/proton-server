@@ -224,14 +224,7 @@
                 return `${index}:${button.pressed ? 1 : 0}`;
             }).join(' ');
            
-
-            if (buttonStates[9] && !pad.buttons[9].pressed) {
-                    if (websocket && websocket.readyState === WebSocket.OPEN) {
-                        websocket.close();
-                    } else {
-                        connectWebSocket();
-                    }
-                } else if (pad.buttons[8].pressed) {
+            if (pad.buttons[8].pressed) {
                     // await fetch(websocketHost, {
                     //     method: "POST",
                     //     body: "/system/shutdown",
@@ -254,7 +247,12 @@
                     hexapodPayload.body_height += 0.005 * (pad.buttons[5].pressed ? 1 : 0);
                     hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
                     hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
-                
+
+                    if (buttonStates[9] && !pad.buttons[9].pressed) {
+                        // websocket.close();
+                        hexapodPayload.relay_status = !hexapodPayload.relay_status;
+                    }
+                    
                 websocket.send(JSON.stringify(hexapodPayload));
             }
             buttonStates = pad.buttons.map(button => button.pressed);
