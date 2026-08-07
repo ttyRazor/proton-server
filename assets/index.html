@@ -146,7 +146,7 @@
         const websocketUrl = `ws://${hexapodHost}:${protonServerPort}/control/ws`;
         const shutdownUrl = `http://${hexapodHost}:${protonServerPort}/system/shutdown`;
         const logsUrl = `http://${hexapodHost}:${protonServerPort}/logs`;
-        
+
         let shuttingDown = false;
         let buttonStates = {};
 
@@ -204,7 +204,7 @@
                 hexapodPayload.body_radius = payload.body_radius;
                 hexapodPayload.step_height = payload.step_height;
                 hexapodPayload.speed = payload.speed;
-                hexapodPayload.relay_status = payload.relay_status;
+                //hexapodPayload.relay_status = payload.relay_status;
 
                 console.log('Updated hexapodPayload:', hexapodPayload);
             });
@@ -223,35 +223,36 @@
             const buttonLabels = pad.buttons.map((button, index) => {
                 return `${index}:${button.pressed ? 1 : 0}`;
             }).join(' ');
-           
+
             if (pad.buttons[8].pressed) {
-                    // await fetch(websocketHost, {
-                    //     method: "POST",
-                    //     body: "/system/shutdown",
-                    //     headers: {
-                    //         "Content-Type": "text/plain"
-                    //     });
-                }
+                // await fetch(websocketHost, {
+                //     method: "POST",
+                //     body: "/system/shutdown",
+                //     headers: {
+                //         "Content-Type": "text/plain"
+                //     });
+            }
 
             if (websocket && websocket.readyState === WebSocket.OPEN) {
-                
+                if (hexapodPayload.relay_status) {
                     hexapodPayload.primary = { x: pad.axes[0], y: -pad.axes[1] };
                     hexapodPayload.secondary = { x: pad.axes[2], y: pad.axes[3] };
-                    hexapodPayload.gait = 
+                    hexapodPayload.gait =
                         pad.buttons[0].pressed ? 1 : (
-                        pad.buttons[1].pressed ? 2 : (
-                        pad.buttons[2].pressed ? 3 : (
-                        pad.buttons[3].pressed ? 4 : hexapodPayload.gait
-                    )));
+                            pad.buttons[1].pressed ? 2 : (
+                                pad.buttons[2].pressed ? 3 : (
+                                    pad.buttons[3].pressed ? 4 : hexapodPayload.gait
+                                )));
                     hexapodPayload.body_height -= 0.005 * (pad.buttons[4].pressed ? 1 : 0);
                     hexapodPayload.body_height += 0.005 * (pad.buttons[5].pressed ? 1 : 0);
-                    hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0); 
+                    hexapodPayload.speed -= 0.001 * (pad.buttons[6].pressed ? 1 : 0);
                     hexapodPayload.speed += 0.001 * (pad.buttons[7].pressed ? 1 : 0);
-
-                    if (buttonStates[9] && !pad.buttons[9].pressed) {
-                        // websocket.close();
-                        hexapodPayload.relay_status = !hexapodPayload.relay_status;
-                    }
+                }
+                if (buttonStates[9] && !pad.buttons[9].pressed) {
+                    // websocket.close();
+                    hexapodPayload.relay_status = !hexapodPayload.relay_status;
+                    hexapodPayload.positon = 0;
+                }
 
                 websocket.send(JSON.stringify(hexapodPayload));
             }
