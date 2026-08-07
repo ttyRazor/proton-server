@@ -148,6 +148,7 @@
         const logsUrl = `http://${hexapodHost}:${protonServerPort}/logs`;
         
         let shuttingDown = false;
+        let buttonStates = {};
 
         let hexapodPayload = {
             primary: { x: 0.0, y: 1.0 },
@@ -212,7 +213,6 @@
         function updateGamepadUI() {
             const pads = navigator.getGamepads ? navigator.getGamepads() : [];
             const pad = pads.find(Boolean);
-            let shuttingDown = false;
 
             if (!pad) {
                 gamepadStatusEl.textContent = 'No gamepad';
@@ -225,7 +225,7 @@
             }).join(' ');
            
 
-            if (pad.buttons[9].pressed) {
+            if (buttonStates[9] && !pad.buttons[9].pressed) {
                     if (websocket && websocket.readyState === WebSocket.OPEN) {
                         websocket.close();
                     } else {
@@ -257,6 +257,7 @@
                 
                 websocket.send(JSON.stringify(hexapodPayload));
             }
+            buttonStates = pad.buttons.map(button => button.pressed);
         }
 
 
